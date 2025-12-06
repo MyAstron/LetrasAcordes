@@ -49,10 +49,23 @@ fun NavegacionApp() {
             val cancionId = backStackEntry.arguments?.getInt("cancionId") ?: 0
             PantallaVerCancion(
                 cancionId = cancionId,
-                onNavegarAtras = { navController.popBackStack() }
+                onNavegarAtras = { navController.popBackStack() },
+                onNavegarAEditar = { id ->
+                    navController.navigate("editarCancion/$id")
+                }
             )
         }
 
+        composable(
+            route = "editarCancion/{cancionId}",
+            arguments = listOf(navArgument("cancionId") { type = NavType.IntType })
+        ) { backStackEntry ->
+            val cancionId = backStackEntry.arguments?.getInt("cancionId") ?: return@composable
+            PantallaEditarCancion(
+                cancionId = cancionId,
+                onNavegarAtras = { navController.popBackStack() }
+            )
+        }
 
         composable(Rutas.AGREGAR_CANCION) {
             PantallaAgregarCancion(

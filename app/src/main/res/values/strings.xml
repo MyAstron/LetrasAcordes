@@ -1,3 +1,7 @@
 <resources>
-    <string name="app_name">Letras y Acordes</string>
+    <string name="app_name">Melodias</string>
+    <string name="desarrollador_nombre">Click Doris</string>
+    <string name="desarrollador_titulo">Cristopher Sic</string>
+    <string name="version_app">Versión 1.0.5</string>
+    <string name="agradecimientos">Gracias por usar mi aplicación. ¡Disfrútala!</string>
 </resources>

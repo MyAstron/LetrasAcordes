@@ -43,6 +43,10 @@ object TonalidadUtil {
 
         return nuevaNota + modificador
     }
+    fun obtenerPrimerAcorde(texto: String): String? {
+        val regex = Regex("\\[(.*?)\\]")
+        return regex.find(texto)?.groupValues?.get(1)
+    }
 
     /**
      * Normaliza una nota a su equivalente con sostenido si es un bemol.
