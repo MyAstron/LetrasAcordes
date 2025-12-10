@@ -1,23 +1,30 @@
 package com.letrasacordes.application
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.letrasacordes.application.database.Cancion
 import com.letrasacordes.application.database.CancionDao
 import com.letrasacordes.application.logic.CategoryRepository
+import com.letrasacordes.application.logic.PdfGenerator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 
 private const val LINE_BREAK_REPLACEMENT = "<br>"
 private const val FIELD_SEPARATOR = "|||"
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
-class CancionesViewModel(private val dao: CancionDao, private val categoryRepository: CategoryRepository) : ViewModel() {
+class CancionesViewModel(
+    private val dao: CancionDao, 
+    private val categoryRepository: CategoryRepository,
+    private val pdfGenerator: PdfGenerator
+) : ViewModel() {
 
     private val _textoBusqueda = MutableStateFlow("")
     val textoBusqueda = _textoBusqueda.asStateFlow()
@@ -27,6 +34,16 @@ class CancionesViewModel(private val dao: CancionDao, private val categoryReposi
 
     private val _categorias = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
     val categorias = _categorias.asStateFlow()
+
+    private val _cancionId = MutableStateFlow<Int?>(null)
+    val cancionSeleccionada: StateFlow<Cancion?> = _cancionId
+        .filterNotNull()
+        .flatMapLatest { id -> dao.obtenerCancionPorId(id) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun cargarCancion(id: Int) {
+        _cancionId.value = id
+    }
 
     init {
         refrescarCategorias()
@@ -43,13 +60,8 @@ class CancionesViewModel(private val dao: CancionDao, private val categoryReposi
 
         when {
             idsCancionesCategoria != null -> {
-                if (query.isBlank()) {
-                    dao.obtenerCancionesPorIds(idsCancionesCategoria)
-                } else {
-                    dao.obtenerCancionesPorIds(idsCancionesCategoria).map { canciones ->
-                        canciones.filter { it.titulo.contains(query, ignoreCase = true) || it.autor?.contains(query, ignoreCase = true) ?: false }
-                    }
-                }
+                if (query.isBlank()) dao.obtenerCancionesPorIds(idsCancionesCategoria)
+                else dao.buscarCancionesPorIds(idsCancionesCategoria, query)
             }
             query.isNotBlank() -> dao.buscarCanciones(query)
             else -> dao.obtenerTodasLasCanciones()
@@ -94,9 +106,10 @@ class CancionesViewModel(private val dao: CancionDao, private val categoryReposi
         }
     }
 
-    fun obtenerCancion(id: Int): StateFlow<Cancion?> {
-        return dao.obtenerCancionPorId(id)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    fun generarPdf(canciones: List<Cancion>, withChords: Boolean, uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            pdfGenerator.generateSongbookPdf(canciones, withChords, uri)
+        }
     }
 
     suspend fun agregarCancion(
@@ -183,10 +196,11 @@ class CancionesViewModel(private val dao: CancionDao, private val categoryReposi
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
-                val application = checkNotNull(extras[APPLICATION_KEY]) as CancionarioApplication
+                val application = checkNotNull(extras[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]) as CancionarioApplication
                 val dao = application.database.cancionDao()
                 val categoryRepository = CategoryRepository(application.applicationContext)
-                return CancionesViewModel(dao, categoryRepository) as T
+                val pdfGenerator = PdfGenerator(application.applicationContext)
+                return CancionesViewModel(dao, categoryRepository, pdfGenerator) as T
             }
         }
     }

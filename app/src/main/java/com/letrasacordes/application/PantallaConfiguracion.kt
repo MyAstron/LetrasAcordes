@@ -11,10 +11,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.letrasacordes.application.database.Cancion
@@ -31,10 +31,11 @@ fun PantallaConfiguracion(
     val snackbarHostState = remember { SnackbarHostState() }
 
     var mostrarDialogoExportar by remember { mutableStateOf(false) }
-    val todasLasCanciones by viewModel.canciones.collectAsState()
-    // CORRECCIÓN 1: Usar `mutableStateMapOf` para que Compose observe los cambios.
+    val todasLasCanciones by viewModel.todasLasCanciones.collectAsState()
+    val categorias by viewModel.categorias.collectAsState()
     val cancionesSeleccionadas = remember { mutableStateMapOf<Int, Boolean>() }
 
+    // Se revierte a GetContent para una selección de archivos más simple y compatible.
     val importadorLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
         onResult = { uri: Uri? ->
@@ -56,8 +57,9 @@ fun PantallaConfiguracion(
         }
     )
 
+    // Se usa "application/octet-stream" para permitir una extensión de archivo personalizada.
     val exportadorLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/plain"),
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream"),
         onResult = { uri: Uri? ->
             if (uri != null) {
                 scope.launch {
@@ -71,7 +73,6 @@ fun PantallaConfiguracion(
                     } catch (e: Exception) {
                         snackbarHostState.showSnackbar("Error al exportar el archivo: ${e.message}")
                     } finally {
-                        // CORRECCIÓN 3: Limpiar siempre la selección después de terminar.
                         cancionesSeleccionadas.clear()
                     }
                 }
@@ -100,64 +101,97 @@ fun PantallaConfiguracion(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Lanza el selector de archivos para permitir la selección de cualquier tipo de archivo.
             Button(onClick = { importadorLauncher.launch("*/*") }) {
-                Text("Importar Canciones desde Archivo")
+                Text("Importar Canciones (.book)")
             }
 
             Button(onClick = { mostrarDialogoExportar = true }) {
-                Text("Exportar Canciones a Archivo")
+                Text("Exportar Canciones a .book")
             }
         }
     }
 
     if (mostrarDialogoExportar) {
-        DialogoSeleccionExportar(
-            canciones = todasLasCanciones,
-            cancionesSeleccionadas = cancionesSeleccionadas, // Pasamos el mapa observable
+        DialogoExportacionAvanzado(
+            todasLasCanciones = todasLasCanciones,
+            categorias = categorias,
+            cancionesSeleccionadas = cancionesSeleccionadas,
             onDismiss = {
                 mostrarDialogoExportar = false
-                cancionesSeleccionadas.clear() // Limpiar al cancelar
+                cancionesSeleccionadas.clear()
             },
             onConfirm = {
                 mostrarDialogoExportar = false
-                exportadorLauncher.launch("cancionero.txt")
+                // Exporta el archivo con la extensión .book
+                exportadorLauncher.launch("cancionero.book")
             }
         )
     }
 }
 
 @Composable
-fun DialogoSeleccionExportar(
-    canciones: List<Cancion>,
-    // CORRECCIÓN 2: Recibir el mapa de estado observable en lugar de uno global.
-    cancionesSeleccionadas: SnapshotStateMap<Int, Boolean>,
+fun DialogoExportacionAvanzado(
+    todasLasCanciones: List<Cancion>,
+    categorias: Map<String, Set<Int>>,
+    cancionesSeleccionadas: MutableMap<Int, Boolean>,
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Seleccionar Canciones") },
+        title = { Text("Exportar Canciones") },
         text = {
-            LazyColumn {
-                items(canciones) { cancion ->
-                    val isChecked = cancionesSeleccionadas.getOrDefault(cancion.id, false)
+            LazyColumn(modifier = Modifier.fillMaxWidth()) {
+                // SECCIÓN DE CATEGORÍAS
+                item {
+                    Text("Listas", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                }
+                items(categorias.keys.toList()) { nombreCategoria ->
+                    val idsEnCategoria = categorias[nombreCategoria] ?: emptySet()
+                    val cancionesSeleccionadasEnCategoria = idsEnCategoria.count { cancionesSeleccionadas.getOrDefault(it, false) }
+
+                    val checkboxState = when {
+                        cancionesSeleccionadasEnCategoria == 0 -> ToggleableState.Off
+                        cancionesSeleccionadasEnCategoria == idsEnCategoria.size && idsEnCategoria.isNotEmpty() -> ToggleableState.On
+                        else -> ToggleableState.Indeterminate
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                cancionesSeleccionadas[cancion.id] = !isChecked
+                                val newState = checkboxState != ToggleableState.On
+                                idsEnCategoria.forEach { id -> cancionesSeleccionadas[id] = newState }
                             }
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TriStateCheckbox(state = checkboxState, onClick = null)
+                        Text(nombreCategoria, modifier = Modifier.padding(start = 8.dp))
+                    }
+                }
+
+                item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+
+                // SECCIÓN DE CANCIONES INDIVIDUALES
+                item {
+                    Text("Canciones Individuales", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp))
+                }
+                items(todasLasCanciones) { cancion ->
+                    val isChecked = cancionesSeleccionadas.getOrDefault(cancion.id, false)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { cancionesSeleccionadas[cancion.id] = !isChecked }
+                            .padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Checkbox(
                             checked = isChecked,
-                            onCheckedChange = { nuevoEstado ->
-                                cancionesSeleccionadas[cancion.id] = nuevoEstado
-                            }
+                            onCheckedChange = null // El clic se maneja en la fila
                         )
-                        Spacer(Modifier.width(16.dp))
-                        Text(cancion.titulo)
+                        Text(cancion.titulo, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
             }
