@@ -127,14 +127,14 @@ fun PantallaPrincipalCanciones(
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = { mostrarDialogoImprimir = true }) {
-                Icon(Icons.AutoMirrored.Filled.List, contentDescription = "Imprimir Cancionero")
+                Icon(Icons.Default.Print, contentDescription = "Imprimir Cancionero")
             }
         },
         topBar = {
             TopAppBar(
                 title = { Text("Letras y Acordes") },
                 actions = {
-                    IconButton(onClick = onAgregarCancionClick) { Icon(Icons.Filled.MusicNote, "Agregar canción") }
+                    IconButton(onClick = onAgregarCancionClick) { Icon(Icons.Default.ControlPoint, "Agregar canción") }
                     IconButton(onClick = onConfiguracionClick) { Icon(Icons.Default.Settings, "Configuración") }
                 }
             )
@@ -211,7 +211,7 @@ fun DialogoCrearEditarCategoria(nombreOriginal: String? = null, idsCancionesActu
 fun DialogoImprimir(todasLasCanciones: List<Cancion>, categorias: Map<String, Set<Int>>, cancionesSeleccionadas: MutableMap<Int, Boolean>, incluirAcordes: Boolean, onIncluirAcordesChange: (Boolean) -> Unit, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Exportar a Cancionero (.pdf)") },
+        title = { Text("Imprimir Cancionero (.pdf)") },
         text = {
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onIncluirAcordesChange(!incluirAcordes) }) {
