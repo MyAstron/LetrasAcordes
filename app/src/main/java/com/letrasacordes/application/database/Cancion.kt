@@ -15,6 +15,8 @@ data class Cancion(
     val titulo: String,
 
     val autor: String?, // Opcional, por eso el '?'
+    
+    val ritmo: String?, // Nuevo campo añadido
 
     val letraOriginal: String,
 

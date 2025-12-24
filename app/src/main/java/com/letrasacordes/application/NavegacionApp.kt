@@ -12,7 +12,6 @@ object Rutas {
     const val LISTA_CANCIONES = "lista_canciones"
     const val AGREGAR_CANCION = "agregar_cancion"
     const val CONFIGURACION = "configuracion"
-    // 1. Definimos la nueva ruta con un argumento
     const val VER_CANCION = "ver_cancion/{cancionId}"
 
     // Función auxiliar para construir la ruta completa con el ID
@@ -33,14 +32,12 @@ fun NavegacionApp() {
                 // Pasamos las funciones de navegación como parámetros
                 onAgregarCancionClick = { navController.navigate(Rutas.AGREGAR_CANCION) },
                 onConfiguracionClick = { navController.navigate(Rutas.CONFIGURACION) },
-                // 2. Nueva función de navegación que pasaremos a la lista
                 onCancionClick = { cancionId ->
                     navController.navigate(Rutas.verCancionConId(cancionId))
                 }
-
             )
         }
-        // 3. Añadimos el nuevo destino al grafo de navegación
+
         composable(
             route = Rutas.VER_CANCION,
             arguments = listOf(navArgument("cancionId") { type = NavType.IntType })

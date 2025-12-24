@@ -10,6 +10,7 @@ import com.letrasacordes.application.database.Cancion
 import com.letrasacordes.application.database.CancionDao
 import com.letrasacordes.application.logic.CategoryRepository
 import com.letrasacordes.application.logic.PdfGenerator
+import com.letrasacordes.application.logic.TonalidadUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -115,15 +116,21 @@ class CancionesViewModel(
     suspend fun agregarCancion(
         titulo: String,
         autor: String?,
+        ritmo: String?,
         letra: String,
         tieneAcordes: Boolean
     ) {
         val timestamp = System.currentTimeMillis()
-        val letraLimpia = letra.replace(Regex("\\[.*?\\]"), "")
-        val primerAcorde = if (tieneAcordes) letra.substringAfter("[").substringBefore("]") else null
+        // Limpiamos tanto corchetes [...] como llaves {...}
+        val letraLimpia = letra.replace(Regex("(\\[.*?\\]|\\{.*?\\})"), "")
+        
+        // Usamos TonalidadUtil para obtener el primer acorde real, ignorando intros
+        val primerAcorde = if (tieneAcordes) TonalidadUtil.obtenerPrimerAcorde(letra) else null
+        
         val nuevaCancion = Cancion(
             titulo = titulo.trim(),
             autor = autor?.trim().takeIf { !it.isNullOrBlank() },
+            ritmo = ritmo?.trim().takeIf { !it.isNullOrBlank() },
             letraOriginal = letra,
             tieneAcordes = tieneAcordes,
             tonoOriginal = if (tieneAcordes) primerAcorde?.takeIf { it.isNotBlank() } ?: "C" else null,
@@ -135,11 +142,15 @@ class CancionesViewModel(
     }
 
     suspend fun actualizarCancion(cancion: Cancion) {
-        val letraLimpia = cancion.letraOriginal.replace(Regex("\\[.*?\\]"), "")
-        val primerAcorde = if (cancion.tieneAcordes) cancion.letraOriginal.substringAfter("[").substringBefore("]").takeIf { it.isNotBlank() } ?: "C" else null
+        // Limpiamos tanto corchetes [...] como llaves {...}
+        val letraLimpia = cancion.letraOriginal.replace(Regex("(\\[.*?\\]|\\{.*?\\})"), "")
+        
+        // Usamos TonalidadUtil para obtener el primer acorde real al actualizar también
+        val primerAcorde = if (cancion.tieneAcordes) TonalidadUtil.obtenerPrimerAcorde(cancion.letraOriginal) else null
+        
         val cancionActualizada = cancion.copy(
             letraSinAcordes = letraLimpia,
-            tonoOriginal = primerAcorde,
+            tonoOriginal = primerAcorde ?: "C",
             ultimaEdicion = System.currentTimeMillis()
         )
         dao.actualizar(cancionActualizada)
@@ -155,6 +166,7 @@ class CancionesViewModel(
                 cancion.id,
                 cancion.titulo,
                 cancion.autor ?: "",
+                cancion.ritmo ?: "",
                 cancion.letraOriginal.replace("\n", LINE_BREAK_REPLACEMENT),
                 cancion.tieneAcordes,
                 cancion.tonoOriginal ?: "",
@@ -169,17 +181,21 @@ class CancionesViewModel(
         val cancionesAImportar = textoImportado.lines().filter { it.isNotBlank() }.mapNotNull {
             try {
                 val campos = it.split(FIELD_SEPARATOR)
-                if (campos.size == 9) {
+                if (campos.size >= 9) {
+                    val ritmoIndex = if(campos.size == 10) 3 else -1
+                    val offset = if(campos.size == 10) 1 else 0
+
                     Cancion(
                         id = campos[0].toInt(),
                         titulo = campos[1],
                         autor = campos[2].takeIf { it.isNotEmpty() },
-                        letraOriginal = campos[3].replace(LINE_BREAK_REPLACEMENT, "\n"),
-                        tieneAcordes = campos[4].toBoolean(),
-                        tonoOriginal = campos[5].takeIf { it.isNotEmpty() },
-                        letraSinAcordes = campos[6].replace(LINE_BREAK_REPLACEMENT, "\n"),
-                        fechaCreacion = campos[7].toLong(),
-                        ultimaEdicion = campos[8].toLong()
+                        ritmo = if (ritmoIndex != -1) campos[ritmoIndex].takeIf { it.isNotEmpty() } else null,
+                        letraOriginal = campos[3 + offset].replace(LINE_BREAK_REPLACEMENT, "\n"),
+                        tieneAcordes = campos[4 + offset].toBoolean(),
+                        tonoOriginal = campos[5 + offset].takeIf { it.isNotEmpty() },
+                        letraSinAcordes = campos[6 + offset].replace(LINE_BREAK_REPLACEMENT, "\n"),
+                        fechaCreacion = campos[7 + offset].toLong(),
+                        ultimaEdicion = campos[8 + offset].toLong()
                     )
                 } else null
             } catch (e: Exception) {

@@ -9,14 +9,12 @@ import androidx.room.RoomDatabase
  * La clase principal de la base de datos de la aplicación.
  * Esta clase une las entidades (tablas) y los DAOs.
  *
- * version = 1: Es la versión inicial de nuestra base de datos. Si en el futuro
- *              cambiamos la estructura (ej: añadir una columna a Cancion),
- *              deberemos incrementar este número y proporcionar una migración.
+ * version = 2: Se incrementó la versión tras agregar el campo 'ritmo'.
  *
  * exportSchema = false: Para este proyecto, no necesitamos exportar el esquema
  *                       de la base de datos a un archivo JSON.
  */
-@Database(entities = [Cancion::class], version = 1, exportSchema = false)
+@Database(entities = [Cancion::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
 
     /**
@@ -54,7 +52,11 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "letras_y_acordes_database" // Nombre del archivo de la base de datos
-                ).build()
+                )
+                // Permitimos migraciones destructivas para facilitar el desarrollo.
+                // ADVERTENCIA: Esto borrará los datos existentes si cambia el esquema.
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 // Devolvemos la instancia recién creada
                 instance

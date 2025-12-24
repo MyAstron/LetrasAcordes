@@ -12,9 +12,18 @@ object TonalidadUtil {
     )
 
     // Un mapa para normalizar los acordes a su versión con sostenidos
-    // Ej: "Db" -> "C#", "Gbm" -> "F#m"
+    // Ej: "Db" to "C#", "Gbm" to "F#m"
     private val mapaNormalizacion = mapOf(
         "Db" to "C#", "Eb" to "D#", "Gb" to "F#", "Ab" to "G#", "Bb" to "A#"
+    )
+
+    // Palabras clave que identifican secciones instrumentales y NO son acordes de la canción
+    private val etiquetasInstrumentales = setOf(
+        "INTRO", "INTRODUCCION", "INICIO", 
+        "FINAL", "FIN", "OUTRO", "REMATE",
+        "PUENTE", "INTER", "INTERLUDIO", 
+        "SOLO", "REQINTO", "DECORACIONES",
+        "CIRCULO", "CICLO", "CORO", "VERSO" // Agregué Coro y Verso por si acaso se usan como etiquetas
     )
 
     /**
@@ -43,9 +52,47 @@ object TonalidadUtil {
 
         return nuevaNota + modificador
     }
+
+    /**
+     * Busca el primer acorde real de la canción, ignorando etiquetas como [INTRO], [CORO], etc.
+     * Si encuentra una etiqueta como [INTRO]{G D}, intentará extraer el primer acorde dentro de las llaves.
+     */
     fun obtenerPrimerAcorde(texto: String): String? {
-        val regex = Regex("\\[(.*?)\\]")
-        return regex.find(texto)?.groupValues?.get(1)
+        val regexCorchetes = Regex("\\[(.*?)\\]")
+        val matches = regexCorchetes.findAll(texto)
+
+        for (match in matches) {
+            val contenido = match.groupValues[1].uppercase().trim()
+            
+            // 1. Si NO es una etiqueta instrumental conocida, asumimos que es un acorde (ej: [G])
+            // Verificamos si parece un acorde (empieza con A-G)
+            if (!etiquetasInstrumentales.any { contenido.startsWith(it) }) {
+                // Validación extra: debe parecer un acorde musical
+                if (contenido.matches(Regex("^[A-G][#b]?.*"))) {
+                    return match.groupValues[1] // Devolvemos el contenido original sin uppercase
+                }
+            }
+            
+            // 2. Si ES una etiqueta instrumental, miramos si viene seguida de acordes en llaves {}
+            // Ejemplo: [INTRO]{G D Em}
+            // El regex global buscará esto, pero aquí estamos iterando match por match de corchetes.
+            // Tendríamos que ver el texto INMEDIATAMENTE después de este match.
+        }
+
+        // Si no encontramos acordes normales en corchetes, busquemos bloques instrumentales { ... }
+        // Muchas veces el formato es [INTRO]{G D} o simplemente {G D}
+        val regexLlaves = Regex("\\{([A-G][#b]?.*?)\\}")
+        val matchLlaves = regexLlaves.find(texto)
+        if (matchLlaves != null) {
+            val contenidoLlaves = matchLlaves.groupValues[1].trim()
+            // Tomamos la primera "palabra" dentro de las llaves, que debería ser el primer acorde
+            val primerToken = contenidoLlaves.split(Regex("\\s+")).firstOrNull()
+            if (primerToken != null && primerToken.matches(Regex("^[A-G][#b]?.*"))) {
+                return primerToken
+            }
+        }
+
+        return null
     }
 
     /**

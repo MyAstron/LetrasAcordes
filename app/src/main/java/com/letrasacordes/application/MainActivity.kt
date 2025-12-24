@@ -1,7 +1,9 @@
 package com.letrasacordes.application
 
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextAlign
@@ -178,7 +181,14 @@ fun PantallaPrincipalCanciones(
                     }
                 }
                 IconButton(onClick = { mostrarDialogoCrearCategoria = true }) { Icon(Icons.Default.CreateNewFolder, "Crear categoría") }
-                IconButton(onClick = { isInEditMode = !isInEditMode }) { Icon(if (isInEditMode) Icons.Default.Check else Icons.Default.Edit, if (isInEditMode) "Finalizar edición" else "Editar categorías") }
+                
+                // Botón de editar categorías: visible solo si hay categorías
+                if (categorias.isNotEmpty()) {
+                    IconButton(onClick = { isInEditMode = !isInEditMode }) { 
+                        Icon(if (isInEditMode) Icons.Default.Check else Icons.Default.Edit, 
+                             if (isInEditMode) "Finalizar edición" else "Editar categorías") 
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -260,10 +270,20 @@ fun CancionItem(cancion: Cancion, modifier: Modifier = Modifier) {
                 if (!cancion.autor.isNullOrBlank()) {
                     Text(text = cancion.autor, style = MaterialTheme.typography.bodyMedium)
                 }
+                
                 // Muestra el tono original si existe
                 if (cancion.tonoOriginal != null) {
                     Text(
-                        text = " (Tono: ${cancion.tonoOriginal})",
+                        text = " • ${cancion.tonoOriginal}",
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+
+                // Muestra el ritmo si existe
+                if (!cancion.ritmo.isNullOrBlank()) {
+                    Text(
+                        text = " • ${cancion.ritmo}",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 8.dp)
                     )
@@ -276,7 +296,22 @@ fun CancionItem(cancion: Cancion, modifier: Modifier = Modifier) {
 @Preview(showBackground = true)
 @Composable
 fun CancionItemPreview() {
-    ApplicationTheme { CancionItem(cancion = Cancion(0, "Título de Ejemplo", "Autor de Ejemplo", "", true, "C", "", 0, 0)) }
+    ApplicationTheme { 
+        CancionItem(
+            cancion = Cancion(
+                id = 0, 
+                titulo = "Título de Ejemplo", 
+                autor = "Autor de Ejemplo", 
+                ritmo = "Balada",
+                letraOriginal = "", 
+                tieneAcordes = true, 
+                tonoOriginal = "C", 
+                letraSinAcordes = "", 
+                fechaCreacion = 0, 
+                ultimaEdicion = 0
+            )
+        ) 
+    }
 }
 
 @Preview(showBackground = true)

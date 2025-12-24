@@ -103,11 +103,11 @@ fun PantallaConfiguracion(
         ) {
             // Lanza el selector de archivos para permitir la selección de cualquier tipo de archivo.
             Button(onClick = { importadorLauncher.launch("*/*") }) {
-                Text("Importar Canciones (.book)")
+                Text("Importar Canciones (.txt)")
             }
 
             Button(onClick = { mostrarDialogoExportar = true }) {
-                Text("Exportar Canciones a .book")
+                Text("Exportar Canciones a .txt")
             }
         }
     }
@@ -123,8 +123,8 @@ fun PantallaConfiguracion(
             },
             onConfirm = {
                 mostrarDialogoExportar = false
-                // Exporta el archivo con la extensión .book
-                exportadorLauncher.launch("cancionero.book")
+                // Exporta el archivo con la extensión .txt
+                exportadorLauncher.launch("cancionero.txt")
             }
         )
     }
