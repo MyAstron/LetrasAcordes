@@ -1,6 +1,5 @@
 package com.letrasacordes.application
 
-import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -16,6 +15,11 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 private const val LINE_BREAK_REPLACEMENT = "<br>"
 private const val FIELD_SEPARATOR = "|||"
@@ -107,9 +111,15 @@ class CancionesViewModel(
         }
     }
 
-    fun generarPdf(canciones: List<Cancion>, withChords: Boolean, uri: Uri) {
+    fun generarPdf(
+        canciones: List<Cancion>,
+        withChords: Boolean,
+        includeIndex: Boolean,
+        compactMode: Boolean,
+        uri: Uri
+    ) {
         viewModelScope.launch(Dispatchers.IO) {
-            pdfGenerator.generateSongbookPdf(canciones, withChords, uri)
+            pdfGenerator.generateSongbookPdf(canciones, withChords, includeIndex, compactMode, uri)
         }
     }
 
@@ -160,8 +170,8 @@ class CancionesViewModel(
         dao.eliminar(cancion)
     }
 
-    fun exportarCanciones(canciones: List<Cancion>): String {
-        return canciones.joinToString("\n") { cancion ->
+    fun exportarCanciones(canciones: List<Cancion>): ByteArray {
+        val textoPlano = canciones.joinToString("\n") { cancion ->
             listOf(
                 cancion.id,
                 cancion.titulo,
@@ -175,9 +185,25 @@ class CancionesViewModel(
                 cancion.ultimaEdicion
             ).joinToString(FIELD_SEPARATOR)
         }
+        val bos = ByteArrayOutputStream()
+        GZIPOutputStream(bos).use { gzip ->
+            gzip.write(textoPlano.toByteArray(StandardCharsets.UTF_8))
+        }
+        return bos.toByteArray()
     }
 
-    suspend fun importarCanciones(textoImportado: String): Int {
+    suspend fun importarCanciones(datosArchivo: ByteArray): Int {
+        val textoImportado = try {
+            GZIPInputStream(ByteArrayInputStream(datosArchivo)).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+        } catch (e: Exception) {
+            // Fallback para archivos antiguos que podrían no estar comprimidos
+            try {
+                String(datosArchivo, StandardCharsets.UTF_8)
+            } catch (e2: Exception) {
+                return 0
+            }
+        }
+
         val cancionesAImportar = textoImportado.lines().filter { it.isNotBlank() }.mapNotNull {
             try {
                 val campos = it.split(FIELD_SEPARATOR)

@@ -1,29 +1,31 @@
 package com.letrasacordes.application.logic
 
+import java.util.Locale
+
 object TonalidadUtil {
 
     // Escala cromática con sostenidos
     private val escalaSostenidos = listOf(
         "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
     )
-    // Escala cromática con bemoles
+
+    // Escala cromática con bemoles (aunque usamos principalmente la de sostenidos para calcular)
     private val escalaBemoles = listOf(
         "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"
     )
 
-    // Un mapa para normalizar los acordes a su versión con sostenidos
-    // Ej: "Db" to "C#", "Gbm" to "F#m"
+    // Un mapa para normalizar los acordes a su versión con sostenidos para facilitar el cálculo
     private val mapaNormalizacion = mapOf(
         "Db" to "C#", "Eb" to "D#", "Gb" to "F#", "Ab" to "G#", "Bb" to "A#"
     )
 
-    // Palabras clave que identifican secciones instrumentales y NO son acordes de la canción
+    // Palabras clave que identifican secciones instrumentales y NO son acordes
     private val etiquetasInstrumentales = setOf(
-        "INTRO", "INTRODUCCION", "INICIO", 
+        "INTRO", "INTRODUCCION", "INICIO",
         "FINAL", "FIN", "OUTRO", "REMATE",
-        "PUENTE", "INTER", "INTERLUDIO", 
+        "PUENTE", "INTER", "INTERLUDIO",
         "SOLO", "REQINTO", "DECORACIONES",
-        "CIRCULO", "CICLO", "CORO", "VERSO" // Agregué Coro y Verso por si acaso se usan como etiquetas
+        "CIRCULO", "CICLO", "CORO", "VERSO"
     )
 
     /**
@@ -35,8 +37,9 @@ object TonalidadUtil {
     fun transponerAcorde(acorde: String, semitonos: Int): String {
         if (acorde.isBlank()) return ""
 
-        val regex = "([A-G][#b]?)(.*)".toRegex()
-        val match = regex.find(acorde) ?: return acorde // Si no es un acorde válido, lo devolvemos tal cual
+        // Regex para separar la nota base (A-G, opcional # o b) del resto (m, 7, sus4, etc.)
+        val regex = Regex("([A-G][#b]?)(.*)")
+        val match = regex.find(acorde) ?: return acorde
 
         val notaBase = match.groupValues[1]
         val modificador = match.groupValues[2]
@@ -44,49 +47,58 @@ object TonalidadUtil {
         val notaNormalizada = normalizarNota(notaBase)
         val indiceActual = escalaSostenidos.indexOf(notaNormalizada)
 
-        if (indiceActual == -1) return acorde // No debería pasar si la regex funcionó
+        if (indiceActual == -1) return acorde
 
-        // Calculamos el nuevo índice en la escala (un círculo de 12 notas)
-        val nuevoIndice = (indiceActual + semitonos).mod(12)
+        // Cálculo circular de índices (Módulo 12)
+        // La lógica del APK usaba operaciones a nivel de bits para manejar negativos,
+        // aquí usamos una forma más legible de Kotlin que hace lo mismo:
+        var nuevoIndice = (indiceActual + semitonos) % 12
+        if (nuevoIndice < 0) {
+            nuevoIndice += 12
+        }
+
         val nuevaNota = escalaSostenidos[nuevoIndice]
 
         return nuevaNota + modificador
     }
 
     /**
-     * Busca el primer acorde real de la canción, ignorando etiquetas como [INTRO], [CORO], etc.
-     * Si encuentra una etiqueta como [INTRO]{G D}, intentará extraer el primer acorde dentro de las llaves.
+     * Busca el primer acorde real de la canción.
+     * 1. Revisa etiquetas entre corchetes [Acorde]. Ignora [INTRO], [CORO], etc.
+     * 2. Si no encuentra, revisa bloques entre llaves {Acorde Acorde}.
      */
     fun obtenerPrimerAcorde(texto: String): String? {
         val regexCorchetes = Regex("\\[(.*?)\\]")
         val matches = regexCorchetes.findAll(texto)
 
+        // 1. Buscar en los corchetes [...]
         for (match in matches) {
-            val contenido = match.groupValues[1].uppercase().trim()
-            
-            // 1. Si NO es una etiqueta instrumental conocida, asumimos que es un acorde (ej: [G])
-            // Verificamos si parece un acorde (empieza con A-G)
-            if (!etiquetasInstrumentales.any { contenido.startsWith(it) }) {
-                // Validación extra: debe parecer un acorde musical
-                if (contenido.matches(Regex("^[A-G][#b]?.*"))) {
-                    return match.groupValues[1] // Devolvemos el contenido original sin uppercase
+            val contenidoRaw = match.groupValues[1] // Ej: "G" o "INTRO"
+            val contenidoUpper = contenidoRaw.uppercase(Locale.ROOT).trim()
+
+            // Verificamos si es una etiqueta instrumental conocida
+            val esEtiquetaInstrumental = etiquetasInstrumentales.any { etiqueta ->
+                contenidoUpper.startsWith(etiqueta)
+            }
+
+            if (!esEtiquetaInstrumental) {
+                // Si NO es etiqueta, verificamos si parece un acorde musical (Empieza con A-G)
+                if (contenidoUpper.matches(Regex("^[A-G][#b]?.*"))) {
+                    return contenidoRaw // Devolvemos el acorde original
                 }
             }
-            
-            // 2. Si ES una etiqueta instrumental, miramos si viene seguida de acordes en llaves {}
-            // Ejemplo: [INTRO]{G D Em}
-            // El regex global buscará esto, pero aquí estamos iterando match por match de corchetes.
-            // Tendríamos que ver el texto INMEDIATAMENTE después de este match.
         }
 
-        // Si no encontramos acordes normales en corchetes, busquemos bloques instrumentales { ... }
-        // Muchas veces el formato es [INTRO]{G D} o simplemente {G D}
+        // 2. Fallback: Buscar en bloques instrumentales {...}
+        // El APK usa regex para encontrar cosas como {G D Em} y tomar el primero.
         val regexLlaves = Regex("\\{([A-G][#b]?.*?)\\}")
         val matchLlaves = regexLlaves.find(texto)
+
         if (matchLlaves != null) {
             val contenidoLlaves = matchLlaves.groupValues[1].trim()
-            // Tomamos la primera "palabra" dentro de las llaves, que debería ser el primer acorde
+            // Tomamos el primer "token" separado por espacios
             val primerToken = contenidoLlaves.split(Regex("\\s+")).firstOrNull()
+
             if (primerToken != null && primerToken.matches(Regex("^[A-G][#b]?.*"))) {
                 return primerToken
             }

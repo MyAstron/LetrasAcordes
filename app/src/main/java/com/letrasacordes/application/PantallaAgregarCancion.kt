@@ -51,10 +51,26 @@ private const val KEY_SHOW_SCAN_WARNING = "show_scan_warning"
 private const val KEY_SHOW_TUTORIAL = "show_tutorial"
 
 private fun normalizeChordForDisplay(chord: String): String {
+    // Normalizar guiones
     var normalized = chord.replace('–', '-').replace('—', '-')
+    
+    // Convertir notación latina (Do, Re, Mi...) a notación inglesa (C, D, E...)
+    normalized = when {
+        normalized.startsWith("Do", ignoreCase = true) -> normalized.replaceFirst("Do", "C", true)
+        normalized.startsWith("Re", ignoreCase = true) -> normalized.replaceFirst("Re", "D", true)
+        normalized.startsWith("Mi", ignoreCase = true) -> normalized.replaceFirst("Mi", "E", true)
+        normalized.startsWith("Fa", ignoreCase = true) -> normalized.replaceFirst("Fa", "F", true)
+        normalized.startsWith("Sol", ignoreCase = true) -> normalized.replaceFirst("Sol", "G", true)
+        normalized.startsWith("La", ignoreCase = true) -> normalized.replaceFirst("La", "A", true)
+        normalized.startsWith("Si", ignoreCase = true) -> normalized.replaceFirst("Si", "B", true)
+        else -> normalized
+    }
+
+    // Normalizar acordes menores usando 'm' minúscula
     if (normalized.contains("-")) {
         normalized = normalized.replaceFirst("-", "m")
     }
+    
     return normalized
 }
 
@@ -62,7 +78,9 @@ private fun isTokenChord(token: String): Boolean {
     if (CHORD_REGEX.matches(token)) return true
     if (token.contains("-") || token.contains("/")) {
         val parts = token.split(Regex("[-/]"))
+        // Check if parts are empty or look like chords
         val allPartsAreChords = parts.all { it.isBlank() || CHORD_REGEX.matches(it) }
+        // Ensure at least one part is a valid chord token (not just empty strings from split)
         if (allPartsAreChords && parts.any { it.isNotBlank() }) return true
     }
     return false
@@ -162,7 +180,9 @@ fun PantallaAgregarCancion(
     // Estados de UI
     var isRhythmExpanded by remember { mutableStateOf(false) }
     var showScanWarningDialog by remember { mutableStateOf(false) }
+    var showOverwriteDialog by remember { mutableStateOf(false) }
     var showTutorialDialog by remember { mutableStateOf(sharedPreferences.getBoolean(KEY_SHOW_TUTORIAL, true)) }
+    var shouldAppendScannedText by remember { mutableStateOf(false) }
     var currentAction by remember { mutableStateOf<() -> Unit>({}) }
     
     val tieneAcordes = letra.contains("[") && letra.contains("]")
@@ -239,7 +259,13 @@ fun PantallaAgregarCancion(
                                 processedLines.add("{ $remainingChords }")
                             }
                         }
-                        letra = processedLines.joinToString("\n")
+                        val detectedText = processedLines.joinToString("\n")
+                        
+                        if (letra.isBlank() || !shouldAppendScannedText) {
+                            letra = detectedText
+                        } else {
+                            letra += "\n\n" + detectedText
+                        }
                     }
                     .addOnFailureListener { e: Exception ->
                         Toast.makeText(context, "Error al reconocer texto: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -370,6 +396,33 @@ fun PantallaAgregarCancion(
             }
         )
     }
+    
+    // Diálogo de sobrescritura
+    if (showOverwriteDialog) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteDialog = false },
+            title = { Text("Texto existente") },
+            text = { Text("Ya existe texto en el campo de letra. ¿Qué deseas hacer?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    shouldAppendScannedText = true
+                    showOverwriteDialog = false
+                    checkAndExecuteAction(currentAction)
+                }) {
+                    Text("Agregar al final")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    shouldAppendScannedText = false
+                    showOverwriteDialog = false
+                    checkAndExecuteAction(currentAction)
+                }) {
+                    Text("Reemplazar todo")
+                }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -487,7 +540,14 @@ fun PantallaAgregarCancion(
                 ) {
                     FloatingActionButton(
                         onClick = {
-                            checkAndExecuteAction { pickImageLauncher.launch("image/*") }
+                            val action = { pickImageLauncher.launch("image/*") }
+                            if (letra.isNotBlank()) {
+                                currentAction = action
+                                showOverwriteDialog = true
+                            } else {
+                                shouldAppendScannedText = false
+                                checkAndExecuteAction(action)
+                            }
                         },
                         modifier = Modifier.padding(bottom = 16.dp)
                     ) {
@@ -496,7 +556,7 @@ fun PantallaAgregarCancion(
 
                     FloatingActionButton(
                         onClick = {
-                            checkAndExecuteAction {
+                            val action = {
                                 when (PackageManager.PERMISSION_GRANTED) {
                                     ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) -> {
                                         launchCamera()
@@ -505,6 +565,13 @@ fun PantallaAgregarCancion(
                                         requestPermissionLauncher.launch(Manifest.permission.CAMERA)
                                     }
                                 }
+                            }
+                            if (letra.isNotBlank()) {
+                                currentAction = action
+                                showOverwriteDialog = true
+                            } else {
+                                shouldAppendScannedText = false
+                                checkAndExecuteAction(action)
                             }
                         }
                     ) {

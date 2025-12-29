@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.letrasacordes.application.database.Cancion
@@ -42,9 +43,10 @@ fun PantallaConfiguracion(
             if (uri != null) {
                 scope.launch {
                     try {
-                        val textoImportado = context.contentResolver.openInputStream(uri)?.bufferedReader().use { it?.readText() }
-                        if (!textoImportado.isNullOrBlank()) {
-                            val cancionesImportadas = viewModel.importarCanciones(textoImportado)
+                        // Cambiamos a bytes para soportar el formato comprimido
+                        val bytesImportados = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        if (bytesImportados != null && bytesImportados.isNotEmpty()) {
+                            val cancionesImportadas = viewModel.importarCanciones(bytesImportados)
                             snackbarHostState.showSnackbar("$cancionesImportadas canciones importadas con éxito")
                         } else {
                             snackbarHostState.showSnackbar("Error: El archivo está vacío o no se pudo leer.")
@@ -65,9 +67,9 @@ fun PantallaConfiguracion(
                 scope.launch {
                     try {
                         val cancionesAExportar = todasLasCanciones.filter { cancionesSeleccionadas.getOrDefault(it.id, false) }
-                        val textoAExportar = viewModel.exportarCanciones(cancionesAExportar)
+                        val bytesAExportar = viewModel.exportarCanciones(cancionesAExportar)
                         context.contentResolver.openOutputStream(uri)?.use {
-                            it.write(textoAExportar.toByteArray())
+                            it.write(bytesAExportar)
                         }
                         snackbarHostState.showSnackbar("${cancionesAExportar.size} canciones exportadas con éxito.")
                     } catch (e: Exception) {
@@ -103,11 +105,11 @@ fun PantallaConfiguracion(
         ) {
             // Lanza el selector de archivos para permitir la selección de cualquier tipo de archivo.
             Button(onClick = { importadorLauncher.launch("*/*") }) {
-                Text("Importar Canciones (.txt)")
+                Text("Importar Canciones (la/Txt)")
             }
 
             Button(onClick = { mostrarDialogoExportar = true }) {
-                Text("Exportar Canciones a .txt")
+                Text("Exportar Canciones (.la)")
             }
         }
     }
@@ -123,8 +125,8 @@ fun PantallaConfiguracion(
             },
             onConfirm = {
                 mostrarDialogoExportar = false
-                // Exporta el archivo con la extensión .txt
-                exportadorLauncher.launch("cancionero.txt")
+                // Exporta el archivo con la extensión .la (Letras y Acordes) o .gz
+                exportadorLauncher.launch("cancionero.la")
             }
         )
     }
@@ -172,7 +174,7 @@ fun DialogoExportacionAvanzado(
                     }
                 }
 
-                item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+                item { HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp)) }
 
                 // SECCIÓN DE CANCIONES INDIVIDUALES
                 item {

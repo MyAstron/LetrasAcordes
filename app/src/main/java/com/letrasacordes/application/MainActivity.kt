@@ -1,9 +1,10 @@
 package com.letrasacordes.application
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,11 +14,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,18 +30,48 @@ import com.letrasacordes.application.database.Cancion
 import com.letrasacordes.application.ui.theme.ApplicationTheme
 
 class MainActivity : ComponentActivity() {
+    private val _intentUri = mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        _intentUri.value = intent?.data
+
         setContent {
             ApplicationTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    val viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
+                    val context = LocalContext.current
+                    val uri by _intentUri
+
+                    LaunchedEffect(uri) {
+                        uri?.let { safeUri ->
+                            try {
+                                context.contentResolver.openInputStream(safeUri)?.use { inputStream ->
+                                    val bytes = inputStream.readBytes()
+                                    val count = viewModel.importarCanciones(bytes)
+                                    Toast.makeText(context, "$count canciones importadas", Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Error al importar: ${e.message}", Toast.LENGTH_LONG).show()
+                                e.printStackTrace()
+                            }
+                            _intentUri.value = null
+                        }
+                    }
+
                     NavegacionApp()
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        this.intent = intent
+        _intentUri.value = intent.data
     }
 }
 
@@ -69,11 +98,13 @@ fun PantallaPrincipalCanciones(
 
     val cancionesSeleccionadasParaImprimir = remember { mutableStateMapOf<Int, Boolean>() }
     var imprimirConAcordes by remember { mutableStateOf(true) }
+    var incluirIndice by remember { mutableStateOf(true) }
+    var modoCompacto by remember { mutableStateOf(false) }
 
     val pdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-        uri?.let {
-            val cancionesAImprimir = todasLasCanciones.filter { cancionesSeleccionadasParaImprimir.getOrDefault(it.id, false) }
-            cancionesViewModel.generarPdf(cancionesAImprimir, imprimirConAcordes, it)
+        uri?.let { safeUri ->
+            val cancionesAImprimir = todasLasCanciones.filter { cancion -> cancionesSeleccionadasParaImprimir.getOrDefault(cancion.id, false) }
+            cancionesViewModel.generarPdf(cancionesAImprimir, imprimirConAcordes, incluirIndice, modoCompacto, safeUri)
         }
     }
 
@@ -89,25 +120,25 @@ fun PantallaPrincipalCanciones(
         )
     }
 
-    categoriaParaEditar?.let {
+    categoriaParaEditar?.let { nombreCategoria ->
         DialogoCrearEditarCategoria(
-            nombreOriginal = it,
-            idsCancionesActuales = categorias[it] ?: emptySet(),
+            nombreOriginal = nombreCategoria,
+            idsCancionesActuales = categorias[nombreCategoria] ?: emptySet(),
             todasLasCanciones = todasLasCanciones,
             onDismiss = { categoriaParaEditar = null },
             onConfirm = { nombreNuevo, ids ->
-                cancionesViewModel.actualizarCategoria(it, nombreNuevo, ids)
+                cancionesViewModel.actualizarCategoria(nombreCategoria, nombreNuevo, ids)
                 categoriaParaEditar = null
             }
         )
     }
 
-    categoriaParaEliminar?.let {
+    categoriaParaEliminar?.let { nombreCategoria ->
         AlertDialog(
             onDismissRequest = { categoriaParaEliminar = null },
             title = { Text("Eliminar Categoría") },
-            text = { Text("¿Estás seguro de que quieres eliminar la categoría '$it'?") },
-            confirmButton = { Button(onClick = { cancionesViewModel.eliminarCategoria(it); categoriaParaEliminar = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Eliminar") } },
+            text = { Text("¿Estás seguro de que quieres eliminar la categoría '$nombreCategoria'?") },
+            confirmButton = { Button(onClick = { cancionesViewModel.eliminarCategoria(nombreCategoria); categoriaParaEliminar = null }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) { Text("Eliminar") } },
             dismissButton = { TextButton(onClick = { categoriaParaEliminar = null }) { Text("Cancelar") } }
         )
     }
@@ -119,6 +150,10 @@ fun PantallaPrincipalCanciones(
             cancionesSeleccionadas = cancionesSeleccionadasParaImprimir,
             incluirAcordes = imprimirConAcordes,
             onIncluirAcordesChange = { imprimirConAcordes = it },
+            incluirIndice = incluirIndice,
+            onIncluirIndiceChange = { incluirIndice = it },
+            modoCompacto = modoCompacto,
+            onModoCompactoChange = { modoCompacto = it },
             onDismiss = { mostrarDialogoImprimir = false },
             onConfirm = {
                 pdfLauncher.launch("Cancionero.pdf")
@@ -218,7 +253,19 @@ fun DialogoCrearEditarCategoria(nombreOriginal: String? = null, idsCancionesActu
 }
 
 @Composable
-fun DialogoImprimir(todasLasCanciones: List<Cancion>, categorias: Map<String, Set<Int>>, cancionesSeleccionadas: MutableMap<Int, Boolean>, incluirAcordes: Boolean, onIncluirAcordesChange: (Boolean) -> Unit, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+fun DialogoImprimir(
+    todasLasCanciones: List<Cancion>, 
+    categorias: Map<String, Set<Int>>, 
+    cancionesSeleccionadas: MutableMap<Int, Boolean>, 
+    incluirAcordes: Boolean, 
+    onIncluirAcordesChange: (Boolean) -> Unit,
+    incluirIndice: Boolean,
+    onIncluirIndiceChange: (Boolean) -> Unit,
+    modoCompacto: Boolean,
+    onModoCompactoChange: (Boolean) -> Unit,
+    onDismiss: () -> Unit, 
+    onConfirm: () -> Unit
+) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Imprimir Cancionero (.pdf)") },
@@ -228,7 +275,31 @@ fun DialogoImprimir(todasLasCanciones: List<Cancion>, categorias: Map<String, Se
                     Checkbox(checked = incluirAcordes, onCheckedChange = null)
                     Text("Incluir Acordes", modifier = Modifier.padding(start = 8.dp))
                 }
-                Divider(modifier = Modifier.padding(vertical = 16.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onIncluirIndiceChange(!incluirIndice) }) {
+                    Checkbox(checked = incluirIndice, onCheckedChange = null)
+                    Text("Incluir Índice", modifier = Modifier.padding(start = 8.dp))
+                }
+                
+                // Modificado para coincidir con la solicitud del usuario
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onModoCompactoChange(!modoCompacto) }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(checked = modoCompacto, onCheckedChange = null)
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Text("Modo Compacto", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = if (modoCompacto) "Canciones seguidas (Ahorra papel)" else "Una canción por página",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
                 LazyColumn(modifier = Modifier.fillMaxWidth()) {
                     item { Text("Listas", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp)) }
                     items(categorias.keys.toList()) { nombreCategoria ->
@@ -244,7 +315,7 @@ fun DialogoImprimir(todasLasCanciones: List<Cancion>, categorias: Map<String, Se
                             Text(nombreCategoria, modifier = Modifier.padding(start = 8.dp))
                         }
                     }
-                    item { Divider(modifier = Modifier.padding(vertical = 16.dp)) }
+                    item { HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp)) }
                     item { Text("Canciones Individuales", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 8.dp)) }
                     items(todasLasCanciones) { cancion ->
                         val isChecked = cancionesSeleccionadas.getOrDefault(cancion.id, false)

@@ -26,7 +26,7 @@ interface CancionDao {
     @Query("SELECT * FROM canciones WHERE id = :id")
     fun obtenerCancionPorId(id: Int): Flow<Cancion?>
 
-    // Modificado para ordenar alfabéticamente, con números y símbolos al final.
+    // Modificado para ordenar alfabéticamente (case-insensitive), con números y símbolos al final.
     @Query("""
         SELECT * FROM canciones 
         ORDER BY 
@@ -34,11 +34,11 @@ interface CancionDao {
                 WHEN SUBSTR(TRIM(titulo), 1, 1) GLOB '[A-Za-z]' THEN 1
                 ELSE 2 
             END, 
-            titulo ASC
+            titulo COLLATE NOCASE ASC
     """)
     fun obtenerTodasLasCanciones(): Flow<List<Cancion>>
 
-    // Modificado para ordenar alfabéticamente, con números y símbolos al final.
+    // Modificado para ordenar alfabéticamente (case-insensitive), con números y símbolos al final.
     @Query("""
         SELECT * FROM canciones WHERE 
         titulo LIKE '%' || :query || '%' COLLATE NOCASE OR 
@@ -49,11 +49,11 @@ interface CancionDao {
                 WHEN SUBSTR(TRIM(titulo), 1, 1) GLOB '[A-Za-z]' THEN 1
                 ELSE 2 
             END, 
-            titulo ASC
+            titulo COLLATE NOCASE ASC
     """)
     fun buscarCanciones(query: String): Flow<List<Cancion>>
 
-    // Modificado para ordenar alfabéticamente, con números y símbolos al final.
+    // Modificado para ordenar alfabéticamente (case-insensitive), con números y símbolos al final.
     @Query("""
         SELECT * FROM canciones WHERE id IN (:ids) 
         ORDER BY 
@@ -61,11 +61,11 @@ interface CancionDao {
                 WHEN SUBSTR(TRIM(titulo), 1, 1) GLOB '[A-Za-z]' THEN 1
                 ELSE 2 
             END, 
-            titulo ASC
+            titulo COLLATE NOCASE ASC
     """)
     fun obtenerCancionesPorIds(ids: Set<Int>): Flow<List<Cancion>>
 
-    // Modificado para ordenar alfabéticamente, con números y símbolos al final.
+    // Modificado para ordenar alfabéticamente (case-insensitive), con números y símbolos al final.
     @Query("""
         SELECT * FROM canciones WHERE id IN (:ids) AND (
             titulo LIKE '%' || :query || '%' COLLATE NOCASE OR 
@@ -77,7 +77,7 @@ interface CancionDao {
                 WHEN SUBSTR(TRIM(titulo), 1, 1) GLOB '[A-Za-z]' THEN 1
                 ELSE 2 
             END, 
-            titulo ASC
+            titulo COLLATE NOCASE ASC
     """)
     fun buscarCancionesPorIds(ids: Set<Int>, query: String): Flow<List<Cancion>>
 }

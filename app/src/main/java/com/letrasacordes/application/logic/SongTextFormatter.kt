@@ -1,15 +1,11 @@
 package com.letrasacordes.application.logic
 
+import kotlin.text.Regex
+
 object SongTextFormatter {
 
     /**
-     * Formatea el texto de una canción con acordes en línea [Am] a un formato de dos líneas
-     * (una para acordes, otra para la letra) para su visualización.
-     *
-     * @param letraOriginal La letra completa de la canción con acordes en formato [Acorde].
-     * @param semitonos El número de semitonos para transponer los acordes (0 si no se transpone).
-     * @param withChords Si es `false`, simplemente limpiará los acordes de la letra.
-     * @return Una lista de pares, donde cada par contiene la línea de acordes y la línea de letra correspondiente.
+     * Formatea el texto de una canción para mostrarlo en pantalla o PDF.* Convierte líneas tipo "[C]Hola [G]Mundo" en pares de líneas (Acordes / Letra).
      */
     fun formatSongTextForDisplay(
         letraOriginal: String,
@@ -17,23 +13,23 @@ object SongTextFormatter {
         withChords: Boolean
     ): List<Pair<String, String>> {
         val lineasProcesadas = mutableListOf<Pair<String, String>>()
-        // Regex para limpiar acordes [...] y bloques {...}
+
+        // Regex para limpiar acordes [...] y bloques {...} si el usuario no los quiere
         val regexAcordesLimpieza = Regex("(\\[.*?\\]|\\{.*?\\})")
-        
-        // Regex para detectar líneas instrumentales completas: [INTRO]{G D} o [PUENTE] {Am}
-        val regexLineaInstrumental = Regex("^\\[(.*?)\\]\\s*\\{(.*?)\\}$")
+
+        // Regex para detectar líneas instrumentales completas: [INTRO]{G D}
+        val regexLineaInstrumental = Regex("^\\[(.*?)\\]\\s*\\{(.*?)\\}\$")
 
         letraOriginal.lines().forEach { lineaOriginal ->
             val lineaTrim = lineaOriginal.trim()
 
-            // Si no queremos acordes, limpiamos todo
+            // Si el usuario desactivó los acordes, devolvemos solo la letra limpia
             if (!withChords) {
                 lineasProcesadas.add(Pair("", lineaOriginal.replace(regexAcordesLimpieza, "").trim()))
                 return@forEach
             }
 
             // 1. Caso especial: Línea Instrumental (ej: [INTRO]{G D})
-            // Queremos que se vea "Intro: G D" y que esté en el estilo de acordes (azul/resaltado)
             val matchInstrumental = regexLineaInstrumental.find(lineaTrim)
             if (matchInstrumental != null) {
                 val etiquetaRaw = matchInstrumental.groupValues[1] // ej: INTRO
@@ -41,27 +37,23 @@ object SongTextFormatter {
 
                 // Formateamos la etiqueta: INTRO -> Intro
                 val etiquetaVisual = etiquetaRaw.lowercase().replaceFirstChar { it.uppercase() }
-                
-                // Transponemos los acordes dentro de las llaves
+
+                // Transponemos los acordes
                 val contenidoTranspuesto = contenidoRaw.split(Regex("\\s+")).joinToString(" ") { token ->
                     TonalidadUtil.transponerAcorde(token, semitonos)
                 }
 
-                // Construimos la línea visual: "Intro: G D"
                 val lineaVisual = "$etiquetaVisual: $contenidoTranspuesto"
-
-                // Agregamos al PRIMER elemento del par (línea de acordes) para que salga en azul
+                // Agregamos como "línea de acordes" (primer par) para que se pinte de azul/color
                 lineasProcesadas.add(Pair(lineaVisual, ""))
                 return@forEach
             }
 
-            // 2. Caso genérico: Bloques {...} mezclados o sin etiqueta previa
-            // (Mantenemos la lógica anterior por seguridad, pero poniéndolo en acordes si es solo bloques)
+            // 2. Caso genérico: Bloques {...} mezclados (ej: interludios)
             if (lineaOriginal.contains("{")) {
-                 val lineaTranspuesta = transponerBloquesInstrumentales(lineaOriginal, semitonos)
-                 // Si la línea tiene formato de bloque, la tratamos como acordes para resaltarla
-                 lineasProcesadas.add(Pair(lineaTranspuesta, ""))
-                 return@forEach
+                val lineaTranspuesta = transponerBloquesInstrumentales(lineaOriginal, semitonos)
+                lineasProcesadas.add(Pair(lineaTranspuesta, ""))
+                return@forEach
             }
 
             // 3. Procesamiento estándar de acordes [Acorde]Letra
@@ -73,7 +65,7 @@ object SongTextFormatter {
             val matches = regex.findAll(lineaOriginal)
 
             if (!matches.any()) {
-                // Si es solo texto sin acordes, va a la línea de letra (segundo elemento)
+                // Si es solo texto sin acordes
                 lineasProcesadas.add(Pair("", lineaOriginal))
                 return@forEach
             }
@@ -85,26 +77,25 @@ object SongTextFormatter {
                 val textoEntreAcordes = lineaOriginal.substring(indiceActual, match.range.first)
                 lineaDeLetra.append(textoEntreAcordes)
 
-                // Espaciado para alinear el acorde sobre la letra
-                val espacios = " ".repeat(textoEntreAcordes.length.coerceAtLeast(1))
-                
-                if (indiceActual == 0 && textoEntreAcordes.isEmpty()) {
-                   // No añadir espacios extra al inicio
-                } else {
-                   lineaDeAcordes.append(" ".repeat(textoEntreAcordes.length))
+                // Calcular espacios para alinear el acorde exactamente sobre la sílaba
+                if (indiceActual > 0 || textoEntreAcordes.isNotEmpty()) {
+                    lineaDeAcordes.append(" ".repeat(textoEntreAcordes.length))
                 }
 
                 lineaDeAcordes.append(acordeTranspuesto)
                 indiceActual = match.range.last + 1
             }
 
-            lineaDeLetra.append(lineaOriginal.substring(indiceActual))
+            // Agregar el resto de la letra después del último acorde
+            if (indiceActual < lineaOriginal.length) {
+                lineaDeLetra.append(lineaOriginal.substring(indiceActual))
+            }
 
             lineasProcesadas.add(Pair(lineaDeAcordes.toString(), lineaDeLetra.toString()))
         }
         return lineasProcesadas
     }
-    
+
     private fun transponerBloquesInstrumentales(linea: String, semitonos: Int): String {
         // Busca contenido dentro de llaves {G D Em} y transpone
         val regexLlaves = Regex("\\{(.*?)\\}")
@@ -113,11 +104,8 @@ object SongTextFormatter {
             val acordesTranspuestos = contenido.split(" ").joinToString(" ") { token ->
                 TonalidadUtil.transponerAcorde(token, semitonos)
             }
-            // Retiramos las llaves para la visualización si se desea, 
-            // o las dejamos si el usuario quiere ver { }. 
-            // Dado que pediste "Intro: acordes", asumiré que quieres los acordes limpios sin llaves
-            // en este contexto de visualización puramente instrumental.
-            acordesTranspuestos 
+            // Devolvemos solo los acordes transpuestos, quitando las llaves para visualización limpia
+            acordesTranspuestos
         }
     }
 }

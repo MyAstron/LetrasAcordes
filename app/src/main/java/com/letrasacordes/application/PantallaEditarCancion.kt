@@ -171,6 +171,8 @@ fun PantallaEditarCancion(
 
     // Estados de UI
     var showScanWarningDialog by remember { mutableStateOf(false) }
+    var showOverwriteDialog by remember { mutableStateOf(false) }
+    var shouldAppendScannedText by remember { mutableStateOf(false) }
     var currentAction by remember { mutableStateOf<() -> Unit>({}) }
     
     // Cálculo dinámico de acordes (Reemplaza el checkbox manual)
@@ -246,10 +248,13 @@ fun PantallaEditarCancion(
                             }
                         }
                         
-                        // Si ya había texto, preguntar o añadir al final? 
-                        // Por simplicidad, reemplazamos o añadimos un salto si se prefiere.
-                        // Aquí reemplazamos para coincidir con la lógica de "Agregar".
-                        letraOriginal = processedLines.joinToString("\n")
+                        val detectedText = processedLines.joinToString("\n")
+                        
+                        if (letraOriginal.isBlank() || !shouldAppendScannedText) {
+                            letraOriginal = detectedText
+                        } else {
+                            letraOriginal += "\n\n" + detectedText
+                        }
                     }
                     .addOnFailureListener { e: Exception ->
                         Toast.makeText(context, "Error al reconocer texto: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -355,6 +360,33 @@ fun PantallaEditarCancion(
             dismissButton = {
                 TextButton(onClick = { showScanWarningDialog = false }) {
                     Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // Diálogo de sobrescritura
+    if (showOverwriteDialog) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteDialog = false },
+            title = { Text("Texto existente") },
+            text = { Text("Ya existe texto en el campo de letra. ¿Qué deseas hacer?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    shouldAppendScannedText = true
+                    showOverwriteDialog = false
+                    checkAndExecuteAction(currentAction)
+                }) {
+                    Text("Agregar al final")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    shouldAppendScannedText = false
+                    showOverwriteDialog = false
+                    checkAndExecuteAction(currentAction)
+                }) {
+                    Text("Reemplazar todo")
                 }
             }
         )
@@ -475,7 +507,14 @@ fun PantallaEditarCancion(
                     ) {
                         FloatingActionButton(
                             onClick = {
-                                checkAndExecuteAction { pickImageLauncher.launch("image/*") }
+                                val action = { pickImageLauncher.launch("image/*") }
+                                if (letraOriginal.isNotBlank()) {
+                                    currentAction = action
+                                    showOverwriteDialog = true
+                                } else {
+                                    shouldAppendScannedText = false
+                                    checkAndExecuteAction(action)
+                                }
                             },
                             modifier = Modifier.padding(bottom = 16.dp)
                         ) {
@@ -484,7 +523,7 @@ fun PantallaEditarCancion(
 
                         FloatingActionButton(
                             onClick = {
-                                checkAndExecuteAction {
+                                val action = {
                                     when (PackageManager.PERMISSION_GRANTED) {
                                         ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) -> {
                                             launchCamera()
@@ -493,6 +532,13 @@ fun PantallaEditarCancion(
                                             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
                                         }
                                     }
+                                }
+                                if (letraOriginal.isNotBlank()) {
+                                    currentAction = action
+                                    showOverwriteDialog = true
+                                } else {
+                                    shouldAppendScannedText = false
+                                    checkAndExecuteAction(action)
                                 }
                             }
                         ) {
