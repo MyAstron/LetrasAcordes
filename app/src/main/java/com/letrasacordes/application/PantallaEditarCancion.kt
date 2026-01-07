@@ -9,8 +9,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -33,12 +31,13 @@ import com.canhub.cropper.CropImageOptions
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.letrasacordes.application.database.Cancion
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
 import com.google.mlkit.vision.text.Text as VisionText
 
-// Expresiones regulares ajustadas (Idénticas a PantallaAgregarCancion)
+// Se reutilizan las mismas expresiones regulares y lógica de normalización
 private const val CHORD_PATTERN = """^((Do|Re|Mi|Fa|Sol|La|Si|[A-G]|B7)(#|b)?(m|maj|dim|aug|sus|add|M|7|9|11|13|6|5|4|2|b5|#9|#5|b9|sus4|sus2|-|-|–|—|/)?(?:[0-9b#])*(?:/[A-G](?:#|b)?)?)$"""
 private val CHORD_REGEX = Regex(CHORD_PATTERN, RegexOption.IGNORE_CASE)
 private val CHORD_CLEANUP_REGEX = Regex("(#|b)\\s+[-–—]")
@@ -47,14 +46,34 @@ private val INSTRUMENTAL_LABEL_REGEX = Regex("^(Introducci[oó0]n|Intr[o0]|Inici
 
 // Constantes para SharedPreferences
 private const val PREFS_NAME = "app_preferences"
-private const val KEY_SHOW_SCAN_WARNING = "show_scan_warning"
-// Omitimos KEY_SHOW_TUTORIAL aquí, asumimos que el usuario ya lo vio al agregar, o es menos intrusivo al editar.
+private const val KEY_SHOW_SCAN_WARNING = "show_scan_warning_edit" // Key distinta para editar
 
 private fun normalizeChordForDisplay(chord: String): String {
+    // Normalizar guiones
     var normalized = chord.replace('–', '-').replace('—', '-')
+    
+    // Convertir notación latina (Do, Re, Mi...) a notación inglesa (C, D, E...)
+    normalized = when {
+        normalized.startsWith("Do", ignoreCase = true) -> normalized.replaceFirst("Do", "C", true)
+        normalized.startsWith("Re", ignoreCase = true) -> normalized.replaceFirst("Re", "D", true)
+        normalized.startsWith("Mi", ignoreCase = true) -> normalized.replaceFirst("Mi", "E", true)
+        normalized.startsWith("Fa", ignoreCase = true) -> normalized.replaceFirst("Fa", "F", true)
+        normalized.startsWith("Sol", ignoreCase = true) -> normalized.replaceFirst("Sol", "G", true)
+        normalized.startsWith("La", ignoreCase = true) -> normalized.replaceFirst("La", "A", true)
+        normalized.startsWith("Si", ignoreCase = true) -> normalized.replaceFirst("Si", "B", true)
+        else -> normalized
+    }
+
+    // Asegurar que la primera letra siempre sea mayúscula (para A-G)
+    if (normalized.isNotEmpty() && normalized[0].isLowerCase()) {
+        normalized = normalized.replaceFirstChar { it.uppercase() }
+    }
+
+    // Normalizar acordes menores usando 'm' minúscula
     if (normalized.contains("-")) {
         normalized = normalized.replaceFirst("-", "m")
     }
+    
     return normalized
 }
 
@@ -62,7 +81,9 @@ private fun isTokenChord(token: String): Boolean {
     if (CHORD_REGEX.matches(token)) return true
     if (token.contains("-") || token.contains("/")) {
         val parts = token.split(Regex("[-/]"))
+        // Check if parts are empty or look like chords
         val allPartsAreChords = parts.all { it.isBlank() || CHORD_REGEX.matches(it) }
+        // Ensure at least one part is a valid chord token (not just empty strings from split)
         if (allPartsAreChords && parts.any { it.isNotBlank() }) return true
     }
     return false
@@ -138,7 +159,7 @@ private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine
 }
 
 private fun createImageUri(context: Context): Uri {
-    val imageFile = File(context.cacheDir, "images/pic.jpg")
+    val imageFile = File(context.cacheDir, "images/pic_edit.jpg")
     imageFile.parentFile?.mkdirs()
     return FileProvider.getUriForFile(context, "${context.packageName}.provider", imageFile)
 }
@@ -150,33 +171,30 @@ fun PantallaEditarCancion(
     onNavegarAtras: () -> Unit,
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val sharedPreferences = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
-
-    // 1. Carga la canción
     LaunchedEffect(cancionId) {
         viewModel.cargarCancion(cancionId)
     }
-    
-    val cancion by viewModel.cancionSeleccionada.collectAsState()
 
-    // 2. Estados locales inicializados con la canción
+    val cancionState by viewModel.cancionSeleccionada.collectAsState()
+    val cancion = cancionState
+
+    // Contexto y Preferencias
+    val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+
     var titulo by remember(cancion) { mutableStateOf(cancion?.titulo ?: "") }
     var autor by remember(cancion) { mutableStateOf(cancion?.autor ?: "") }
     var ritmo by remember(cancion) { mutableStateOf(cancion?.ritmo ?: "") }
     var letraOriginal by remember(cancion) { mutableStateOf(cancion?.letraOriginal ?: "") }
     
     var isRhythmExpanded by remember { mutableStateOf(false) }
-
-    // Estados de UI
     var showScanWarningDialog by remember { mutableStateOf(false) }
     var showOverwriteDialog by remember { mutableStateOf(false) }
-    var shouldAppendScannedText by remember { mutableStateOf(false) }
     var currentAction by remember { mutableStateOf<() -> Unit>({}) }
-    
-    // Cálculo dinámico de acordes (Reemplaza el checkbox manual)
+    var shouldAppendScannedText by remember { mutableStateOf(false) }
+
     val tieneAcordes = letraOriginal.contains("[") && letraOriginal.contains("]")
+    val scope = rememberCoroutineScope()
 
     val rhythmOptions = listOf(
         "Balada 4/4", "Balada 6/8", "Rock", "Pop", "Bolero", 
@@ -185,7 +203,7 @@ fun PantallaEditarCancion(
         "Corrido", "Norteño", "Huapango", "Vals"
     )
 
-    // --- Lógica de Cámara/ML Kit ---
+    // ML Kit y Launcher (Duplicado de lógica de agregar, idealmente refactorizar en un Composable común o Helper)
     val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     var imageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -407,11 +425,18 @@ fun PantallaEditarCancion(
                         onClick = {
                             val cancionParaActualizar = cancion
                             if (cancionParaActualizar != null) {
+                                // Aplicar normalización de acordes al guardar manualmente
+                                val regexAcordes = Regex("\\[(.*?)\\]")
+                                val letraNormalizada = letraOriginal.replace(regexAcordes) { match ->
+                                    val acorde = match.groupValues[1]
+                                    "[${normalizeChordForDisplay(acorde)}]"
+                                }
+                                
                                 val cancionActualizada = cancionParaActualizar.copy(
                                     titulo = titulo,
                                     autor = autor.takeIf { it.isNotBlank() },
                                     ritmo = ritmo.takeIf { it.isNotBlank() },
-                                    letraOriginal = letraOriginal,
+                                    letraOriginal = letraNormalizada,
                                     tieneAcordes = tieneAcordes,
                                     ultimaEdicion = System.currentTimeMillis()
                                 )
@@ -496,11 +521,10 @@ fun PantallaEditarCancion(
                         onValueChange = { letraOriginal = it },
                         label = { Text("Letra y Acordes") },
                         modifier = Modifier.fillMaxSize(),
-                        supportingText = { Text("Usa el formato [Am] para los acordes.") }
+                        supportingText = { Text("Usa el formato [Am]Letra para los acordes") }
                     )
-
-                    // Botones Flotantes (Cámara y Galería)
-                    Column(
+                    
+                     Column(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(16.dp)

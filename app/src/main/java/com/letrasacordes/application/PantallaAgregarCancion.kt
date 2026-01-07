@@ -66,6 +66,11 @@ private fun normalizeChordForDisplay(chord: String): String {
         else -> normalized
     }
 
+    // Asegurar que la primera letra siempre sea mayúscula (para A-G)
+    if (normalized.isNotEmpty() && normalized[0].isLowerCase()) {
+        normalized = normalized.replaceFirstChar { it.uppercase() }
+    }
+
     // Normalizar acordes menores usando 'm' minúscula
     if (normalized.contains("-")) {
         normalized = normalized.replaceFirst("-", "m")
@@ -439,12 +444,19 @@ fun PantallaAgregarCancion(
                 actions = {
                     IconButton(
                         onClick = {
+                            // Aplicar normalización de acordes al guardar manualmente
+                            val regexAcordes = Regex("\\[(.*?)\\]")
+                            val letraNormalizada = letra.replace(regexAcordes) { match ->
+                                val acorde = match.groupValues[1]
+                                "[${normalizeChordForDisplay(acorde)}]"
+                            }
+                            
                             scope.launch {
                                 cancionesViewModel.agregarCancion(
                                     titulo = titulo,
                                     autor = autor,
                                     ritmo = ritmo,
-                                    letra = letra,
+                                    letra = letraNormalizada,
                                     tieneAcordes = tieneAcordes
                                 )
                                 onNavegarAtras()

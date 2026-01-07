@@ -1,10 +1,12 @@
 package com.letrasacordes.application
 
+import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -82,6 +84,7 @@ fun PantallaPrincipalCanciones(
     onAgregarCancionClick: () -> Unit,
     onConfiguracionClick: () -> Unit,
     onCancionClick: (Int) -> Unit,
+    onSecretBack: () -> Unit = {}, // Callback para acciones secretas
     cancionesViewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
     val textoBusqueda by cancionesViewModel.textoBusqueda.collectAsState()
@@ -100,6 +103,13 @@ fun PantallaPrincipalCanciones(
     var imprimirConAcordes by remember { mutableStateOf(true) }
     var incluirIndice by remember { mutableStateOf(true) }
     var modoCompacto by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    
+    // IMPORTANTE: Interceptamos "Atrás" para cerrar la app en lugar de mostrar el Easter Egg (Carta 1)
+    BackHandler {
+        (context as? Activity)?.finish()
+    }
 
     val pdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let { safeUri ->

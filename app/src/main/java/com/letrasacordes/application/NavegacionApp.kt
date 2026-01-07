@@ -1,6 +1,9 @@
 package com.letrasacordes.application
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -27,29 +30,44 @@ fun NavegacionApp(inicioRealizado: Boolean = false) {
 
     NavHost(
         navController = navController,
-        startDestination = if (inicioRealizado) Rutas.EASTER_EGG else Rutas.LISTA_CANCIONES
+        startDestination = Rutas.EASTER_EGG // Iniciamos en la Carta 1 (Base de la pila)
     ) {
+        // Carta 1: Easter Egg (Base)
         composable(Rutas.EASTER_EGG) {
-            // Este fragmento estaba presente en el código decompilado.
-            // Si tienes una pantalla o lógica específica para el Easter Egg, impleméntala aquí.
-            // Por ahora, redirigiremos a la lista de canciones o mostraremos un placeholder
-            // para mantener la consistencia con el código original restaurado.
-            // Como no tenemos el código de 'EasterEggScreen', asumiremos que es una pantalla simple o redirección.
-            PantallaPrincipalCanciones(
-                onAgregarCancionClick = { navController.navigate(Rutas.AGREGAR_CANCION) },
-                onConfiguracionClick = { navController.navigate(Rutas.CONFIGURACION) },
-                onCancionClick = { cancionId ->
-                    navController.navigate(Rutas.verCancionConId(cancionId))
+            // Estado para controlar si es el inicio de la app o si hemos vuelto aquí voluntariamente
+            val esInicio = rememberSaveable { mutableStateOf(true) }
+
+            if (esInicio.value) {
+                // Si es el arranque, navegamos INMEDIATAMENTE al Main (Carta 2)
+                LaunchedEffect(Unit) {
+                    esInicio.value = false
+                    navController.navigate(Rutas.LISTA_CANCIONES) {
+                        // No hacemos popUpTo para mantener el Easter Egg en la pila (debajo)
+                    }
                 }
-            )
+            } else {
+                // Si estamos aquí porque volvimos (popBackStack o navegación explícita), mostramos la pantalla
+                EasterEggScreen(
+                    onRegresarMenu = { 
+                        navController.navigate(Rutas.LISTA_CANCIONES) {
+                            popUpTo(Rutas.EASTER_EGG) { inclusive = true }
+                        }
+                    }
+                )
+            }
         }
 
+        // Carta 2: Main (Visible al usuario tras el rebote inicial)
         composable(Rutas.LISTA_CANCIONES) {
             PantallaPrincipalCanciones(
                 onAgregarCancionClick = { navController.navigate(Rutas.AGREGAR_CANCION) },
                 onConfiguracionClick = { navController.navigate(Rutas.CONFIGURACION) },
                 onCancionClick = { cancionId ->
                     navController.navigate(Rutas.verCancionConId(cancionId))
+                },
+                onSecretBack = { 
+                    // Esta acción permite volver a la Carta 1 programáticamente si se desea en el futuro
+                    navController.popBackStack() 
                 }
             )
         }
