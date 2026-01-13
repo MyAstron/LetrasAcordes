@@ -7,21 +7,26 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CropOriginal
-import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,22 +42,18 @@ import java.io.File
 import kotlin.math.abs
 import com.google.mlkit.vision.text.Text as VisionText
 
-// Se reutilizan las mismas expresiones regulares y lógica de normalización
+// Expresiones regulares y lógica de normalización
 private const val CHORD_PATTERN = """^((Do|Re|Mi|Fa|Sol|La|Si|[A-G]|B7)(#|b)?(m|maj|dim|aug|sus|add|M|7|9|11|13|6|5|4|2|b5|#9|#5|b9|sus4|sus2|-|-|–|—|/)?(?:[0-9b#])*(?:/[A-G](?:#|b)?)?)$"""
 private val CHORD_REGEX = Regex(CHORD_PATTERN, RegexOption.IGNORE_CASE)
 private val CHORD_CLEANUP_REGEX = Regex("(#|b)\\s+[-–—]")
 private val WHITESPACE_REGEX = Regex("\\s+")
 private val INSTRUMENTAL_LABEL_REGEX = Regex("^(Introducci[oó0]n|Intr[o0]|Inicio|Puente|Final|Outr[o0]|Inter|Sol[o0]|Decoraciones|Remate|C[ií]rcul[o0]|Cicl[o0])\\.?:?\\s*(.*)", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
 
-// Constantes para SharedPreferences
 private const val PREFS_NAME = "app_preferences"
-private const val KEY_SHOW_SCAN_WARNING = "show_scan_warning_edit" // Key distinta para editar
+private const val KEY_SHOW_SCAN_WARNING = "show_scan_warning_edit"
 
 private fun normalizeChordForDisplay(chord: String): String {
-    // Normalizar guiones
     var normalized = chord.replace('–', '-').replace('—', '-')
-    
-    // Convertir notación latina (Do, Re, Mi...) a notación inglesa (C, D, E...)
     normalized = when {
         normalized.startsWith("Do", ignoreCase = true) -> normalized.replaceFirst("Do", "C", true)
         normalized.startsWith("Re", ignoreCase = true) -> normalized.replaceFirst("Re", "D", true)
@@ -63,17 +64,12 @@ private fun normalizeChordForDisplay(chord: String): String {
         normalized.startsWith("Si", ignoreCase = true) -> normalized.replaceFirst("Si", "B", true)
         else -> normalized
     }
-
-    // Asegurar que la primera letra siempre sea mayúscula (para A-G)
     if (normalized.isNotEmpty() && normalized[0].isLowerCase()) {
         normalized = normalized.replaceFirstChar { it.uppercase() }
     }
-
-    // Normalizar acordes menores usando 'm' minúscula
     if (normalized.contains("-")) {
         normalized = normalized.replaceFirst("-", "m")
     }
-    
     return normalized
 }
 
@@ -81,10 +77,7 @@ private fun isTokenChord(token: String): Boolean {
     if (CHORD_REGEX.matches(token)) return true
     if (token.contains("-") || token.contains("/")) {
         val parts = token.split(Regex("[-/]"))
-        // Check if parts are empty or look like chords
-        val allPartsAreChords = parts.all { it.isBlank() || CHORD_REGEX.matches(it) }
-        // Ensure at least one part is a valid chord token (not just empty strings from split)
-        if (allPartsAreChords && parts.any { it.isNotBlank() }) return true
+        if (parts.all { it.isBlank() || CHORD_REGEX.matches(it) } && parts.any { it.isNotBlank() }) return true
     }
     return false
 }
@@ -94,9 +87,7 @@ private fun isChordLine(line: String): Boolean {
     if (correctedLine.isBlank()) return false
     val words = correctedLine.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     if (words.isEmpty()) return false
-    val chordCount = words.count { isTokenChord(it) }
-    val chordRatio = chordCount.toDouble() / words.size
-    return chordRatio > 0.6
+    return (words.count { isTokenChord(it) }.toDouble() / words.size) > 0.6
 }
 
 private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine: VisionText.Line): String {
@@ -135,14 +126,9 @@ private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine
         val targetWord = targetElement.text
         val avgCharWidth = targetElementBox.width().toFloat() / targetWord.length.coerceAtLeast(1)
         val offset = (chordCenter - targetElementBox.left)
-        val insertionIndexInWord = if (avgCharWidth > 0f) {
-             (offset / avgCharWidth).toInt().coerceIn(0, targetWord.length)
-        } else {
-            0
-        }
-        val displayChord = normalizeChordForDisplay(rawChordText)
+        val insertionIndexInWord = if (avgCharWidth > 0f) (offset / avgCharWidth).toInt().coerceIn(0, targetWord.length) else 0
         val entry = insertions.getOrPut(targetElementIndex) { mutableListOf() }
-        entry.add("[$displayChord]" to insertionIndexInWord)
+        entry.add("[$rawChordText]" to insertionIndexInWord)
     }
 
     val finalLyricParts = lyricElements.map { it.text }.toMutableList()
@@ -151,7 +137,7 @@ private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine
         val sortedWordInsertions = wordInsertions.sortedByDescending { it.second }
         var currentWord = finalLyricParts[i]
         for ((chord, index) in sortedWordInsertions) {
-            currentWord = currentWord.substring(0, index) + chord + currentWord.substring(index)
+            currentWord = currentWord.substring(0, index) + "[${normalizeChordForDisplay(chord.replace("[","").replace("]",""))}]" + currentWord.substring(index)
         }
         finalLyricParts[i] = currentWord
     }
@@ -178,14 +164,13 @@ fun PantallaEditarCancion(
     val cancionState by viewModel.cancionSeleccionada.collectAsState()
     val cancion = cancionState
 
-    // Contexto y Preferencias
     val context = LocalContext.current
     val sharedPreferences = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     var titulo by remember(cancion) { mutableStateOf(cancion?.titulo ?: "") }
     var autor by remember(cancion) { mutableStateOf(cancion?.autor ?: "") }
     var ritmo by remember(cancion) { mutableStateOf(cancion?.ritmo ?: "") }
-    var letraOriginal by remember(cancion) { mutableStateOf(cancion?.letraOriginal ?: "") }
+    var letraValue by remember(cancion) { mutableStateOf(TextFieldValue(cancion?.letraOriginal ?: "")) }
     
     var isRhythmExpanded by remember { mutableStateOf(false) }
     var showScanWarningDialog by remember { mutableStateOf(false) }
@@ -193,17 +178,24 @@ fun PantallaEditarCancion(
     var currentAction by remember { mutableStateOf<() -> Unit>({}) }
     var shouldAppendScannedText by remember { mutableStateOf(false) }
 
-    val tieneAcordes = letraOriginal.contains("[") && letraOriginal.contains("]")
+    // Estados de Notas Musicales (TECLADO)
+    var showNotesBar by remember { mutableStateOf(false) }
+    var selectedRootNote by remember { mutableStateOf<String?>(null) }
+    val roots = listOf("C", "D", "E", "F", "G", "A", "B")
+    val variations = listOf("", "m", "7", "m7", "maj7", "#", "#m", "b", "bm")
+
     val scope = rememberCoroutineScope()
 
-    val rhythmOptions = listOf(
-        "Balada 4/4", "Balada 6/8", "Rock", "Pop", "Bolero", 
-        "Ranchera", "Cumbia", "Salsa", "Reggae", "Ska", 
-        "Blues", "Jazz", "Bossa Nova", "Arpegio", 
-        "Corrido", "Norteño", "Huapango", "Vals"
-    )
+    val rhythmOptions = listOf("Balada", "Rock", "Pop", "Bolero", "Cumbia", "Salsa", "Arpegio", "Vals")
 
-    // ML Kit y Launcher (Duplicado de lógica de agregar, idealmente refactorizar en un Composable común o Helper)
+    fun insertarAcorde(acorde: String) {
+        val textoAcorde = "[$acorde]"
+        val newText = StringBuilder(letraValue.text).insert(letraValue.selection.start, textoAcorde).toString()
+        letraValue = TextFieldValue(text = newText, selection = TextRange(letraValue.selection.start + textoAcorde.length))
+        selectedRootNote = null
+    }
+
+    // ML Kit y Lanzadores
     val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     var imageUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -211,362 +203,152 @@ fun PantallaEditarCancion(
         if (result.isSuccessful) {
             result.uriContent?.let { uri ->
                 val image = InputImage.fromFilePath(context, uri)
-                recognizer.process(image)
-                    .addOnSuccessListener { visionText: VisionText ->
-                        val allLines = visionText.textBlocks.flatMap { it.lines }.sortedBy { it.boundingBox?.top }
-                        val processedLines = mutableListOf<String>()
-                        val pendingChordLines = mutableListOf<VisionText.Line>()
+                recognizer.process(image).addOnSuccessListener { visionText: VisionText ->
+                    val allLines = visionText.textBlocks.flatMap { it.lines }.sortedBy { it.boundingBox?.top }
+                    val processedLines = mutableListOf<String>()
+                    val pendingChordLines = mutableListOf<VisionText.Line>()
 
-                        for (line in allLines) {
-                            val lineText = line.text.trim()
-                            val instrumentalMatch = INSTRUMENTAL_LABEL_REGEX.matchEntire(lineText)
-                            if (instrumentalMatch != null) {
+                    for (line in allLines) {
+                        val lineText = line.text.trim()
+                        val instrumentalMatch = INSTRUMENTAL_LABEL_REGEX.matchEntire(lineText)
+                        if (instrumentalMatch != null) {
+                            pendingChordLines.clear()
+                            val upperLabel = instrumentalMatch.groupValues[1].uppercase().replace("0", "O")
+                            val standardizedLabel = when {
+                                upperLabel.contains("INICIO") || upperLabel.startsWith("INTRO") -> "INTRO"
+                                upperLabel.startsWith("OUT") || upperLabel.startsWith("FIN") || upperLabel.startsWith("REM") -> "FINAL"
+                                else -> upperLabel
+                            }
+                            val content = instrumentalMatch.groupValues[2].trim()
+                            val tokens = content.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
+                            if (tokens.any { isTokenChord(it) }) {
+                                val normalizedContent = tokens.joinToString(" ") { normalizeChordForDisplay(it) }
+                                processedLines.add("[$standardizedLabel]{$normalizedContent}")
+                            }
+                            continue
+                        }
+                        if (isChordLine(lineText)) pendingChordLines.add(line) else {
+                            if (pendingChordLines.isNotEmpty()) {
+                                processedLines.add(mergeChordAndLyricLines(pendingChordLines, line))
                                 pendingChordLines.clear()
-                                val labelRaw = instrumentalMatch.groupValues[1]
-                                val upperLabel = labelRaw.uppercase().replace("0", "O")
-                                val standardizedLabel = when {
-                                    upperLabel.contains("INICIO") || upperLabel.startsWith("INTRO") -> "INTRO"
-                                    upperLabel.startsWith("OUT") || upperLabel.startsWith("FIN") || upperLabel.startsWith("REM") -> "FINAL"
-                                    upperLabel.startsWith("PUENTE") || upperLabel.startsWith("INTER") -> "PUENTE"
-                                    upperLabel.startsWith("SOL") || upperLabel.startsWith("DEC") -> "SOLO"
-                                    upperLabel.startsWith("CIR") || upperLabel.startsWith("CIC") -> "CIRCULO"
-                                    else -> upperLabel
-                                }
-                                val content = instrumentalMatch.groupValues[2].trim()
-                                val tokens = content.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
-                                val hasChords = tokens.any { isTokenChord(it) }
-
-                                if (hasChords) {
-                                    val normalizedContent = tokens.joinToString(" ") { normalizeChordForDisplay(it) }
-                                    processedLines.add("[$standardizedLabel]{$normalizedContent}")
-                                }
-                                continue
-                            }
-                            if (isChordLine(lineText)) {
-                                pendingChordLines.add(line)
-                            } else {
-                                if (pendingChordLines.isNotEmpty()) {
-                                    val mergedLine = mergeChordAndLyricLines(pendingChordLines, line)
-                                    processedLines.add(mergedLine)
-                                    pendingChordLines.clear()
-                                } else {
-                                    processedLines.add(lineText)
-                                }
-                            }
-                        }
-
-                        if (pendingChordLines.isNotEmpty()) {
-                             val remainingChords = pendingChordLines.joinToString(" ") { chordLine ->
-                                chordLine.text.split(WHITESPACE_REGEX)
-                                    .filter { isTokenChord(it) }
-                                    .joinToString(" ") { normalizeChordForDisplay(it) }
-                            }.trim()
-                            if (remainingChords.isNotBlank()) {
-                                processedLines.add("{ $remainingChords }")
-                            }
-                        }
-                        
-                        val detectedText = processedLines.joinToString("\n")
-                        
-                        if (letraOriginal.isBlank() || !shouldAppendScannedText) {
-                            letraOriginal = detectedText
-                        } else {
-                            letraOriginal += "\n\n" + detectedText
+                            } else processedLines.add(lineText)
                         }
                     }
-                    .addOnFailureListener { e: Exception ->
-                        Toast.makeText(context, "Error al reconocer texto: ${e.message}", Toast.LENGTH_SHORT).show()
+                    if (pendingChordLines.isNotEmpty()) {
+                         val remaining = pendingChordLines.joinToString(" ") { cl ->
+                            cl.text.split(WHITESPACE_REGEX).filter { isTokenChord(it) }.joinToString(" ") { normalizeChordForDisplay(it) }
+                        }
+                        if (remaining.isNotBlank()) processedLines.add("{ $remaining }")
                     }
-            }
-        } else {
-            val exception = result.error
-            if (exception != null) {
-                Toast.makeText(context, "Recorte cancelado o fallido: ${exception.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    val pickImageLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent(),
-        onResult = { uri: Uri? ->
-            uri?.let {
-                val cropOptions = CropImageContractOptions(it, CropImageOptions(initialCropWindowPaddingRatio = 0.1f))
-                cropImageLauncher.launch(cropOptions)
-            }
-        }
-    )
-
-    val takePictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-        onResult = { success ->
-            if (success) {
-                imageUri?.let {
-                    val cropOptions = CropImageContractOptions(it, CropImageOptions(initialCropWindowPaddingRatio = 0.1f))
-                    cropImageLauncher.launch(cropOptions)
+                    val detectedText = processedLines.joinToString("\n")
+                    letraValue = if (letraValue.text.isBlank() || !shouldAppendScannedText) TextFieldValue(detectedText) else TextFieldValue(letraValue.text + "\n\n" + detectedText)
                 }
-            } else {
-                Toast.makeText(context, "Error al capturar imagen", Toast.LENGTH_SHORT).show()
             }
         }
-    )
-
-    fun launchCamera() {
-        val uri = createImageUri(context)
-        imageUri = uri
-        takePictureLauncher.launch(uri)
     }
 
-    val requestPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-        onResult = { isGranted: Boolean ->
-            if (isGranted) {
-                launchCamera()
-            } else {
-                Toast.makeText(context, "Se requiere permiso de cámara", Toast.LENGTH_SHORT).show()
-            }
-        }
-    )
+    val pickImageLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { cropImageLauncher.launch(CropImageContractOptions(it, CropImageOptions(initialCropWindowPaddingRatio = 0.1f))) }
+    }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.TakePicture()) { success ->
+        if (success) imageUri?.let { cropImageLauncher.launch(CropImageContractOptions(it, CropImageOptions(initialCropWindowPaddingRatio = 0.1f))) }
+    }
+
+    fun launchCamera() { val uri = createImageUri(context); imageUri = uri; takePictureLauncher.launch(uri) }
+
+    val requestPermissionLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) currentAction() else Toast.makeText(context, "Permiso denegado", Toast.LENGTH_SHORT).show()
+    }
 
     fun checkAndExecuteAction(action: () -> Unit) {
-        val showWarning = sharedPreferences.getBoolean(KEY_SHOW_SCAN_WARNING, true)
-        if (showWarning) {
-            currentAction = action
-            showScanWarningDialog = true
-        } else {
-            action()
-        }
-    }
-
-    // --- DIÁLOGOS ---
-    if (showScanWarningDialog) {
-        var doNotShowAgain by remember { mutableStateOf(false) }
-        
-        AlertDialog(
-            onDismissRequest = { showScanWarningDialog = false },
-            title = { Text("Importante", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text("El escaneo reemplazará el texto actual de la letra.")
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("• Usa la mayor resolución posible.")
-                    Text("• El sistema puede requerir edición manual.")
-                    
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { doNotShowAgain = !doNotShowAgain }
-                    ) {
-                        Checkbox(
-                            checked = doNotShowAgain,
-                            onCheckedChange = { doNotShowAgain = it }
-                        )
-                        Text("No volver a mostrar", style = MaterialTheme.typography.bodySmall)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (doNotShowAgain) {
-                        sharedPreferences.edit().putBoolean(KEY_SHOW_SCAN_WARNING, false).apply()
-                    }
-                    showScanWarningDialog = false
-                    currentAction()
-                }) {
-                    Text("Continuar")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showScanWarningDialog = false }) {
-                    Text("Cancelar")
-                }
-            }
-        )
-    }
-
-    // Diálogo de sobrescritura
-    if (showOverwriteDialog) {
-        AlertDialog(
-            onDismissRequest = { showOverwriteDialog = false },
-            title = { Text("Texto existente") },
-            text = { Text("Ya existe texto en el campo de letra. ¿Qué deseas hacer?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    shouldAppendScannedText = true
-                    showOverwriteDialog = false
-                    checkAndExecuteAction(currentAction)
-                }) {
-                    Text("Agregar al final")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    shouldAppendScannedText = false
-                    showOverwriteDialog = false
-                    checkAndExecuteAction(currentAction)
-                }) {
-                    Text("Reemplazar todo")
-                }
-            }
-        )
+        if (sharedPreferences.getBoolean(KEY_SHOW_SCAN_WARNING, true)) { currentAction = action; showScanWarningDialog = true } else action()
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Editar Canción") },
-                navigationIcon = {
-                    IconButton(onClick = onNavegarAtras) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Cancelar y regresar")
-                    }
-                },
+                navigationIcon = { IconButton(onClick = onNavegarAtras) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Cancelar") } },
                 actions = {
                     IconButton(
-                        enabled = cancion != null,
                         onClick = {
-                            val cancionParaActualizar = cancion
-                            if (cancionParaActualizar != null) {
-                                // Aplicar normalización de acordes al guardar manualmente
-                                val regexAcordes = Regex("\\[(.*?)\\]")
-                                val letraNormalizada = letraOriginal.replace(regexAcordes) { match ->
-                                    val acorde = match.groupValues[1]
-                                    "[${normalizeChordForDisplay(acorde)}]"
-                                }
-                                
-                                val cancionActualizada = cancionParaActualizar.copy(
-                                    titulo = titulo,
-                                    autor = autor.takeIf { it.isNotBlank() },
-                                    ritmo = ritmo.takeIf { it.isNotBlank() },
-                                    letraOriginal = letraNormalizada,
-                                    tieneAcordes = tieneAcordes,
-                                    ultimaEdicion = System.currentTimeMillis()
-                                )
-                                scope.launch {
-                                    viewModel.actualizarCancion(cancionActualizada)
+                            val letraNormalizada = letraValue.text.replace(Regex("\\[(.*?)\\]")) { "[${normalizeChordForDisplay(it.groupValues[1])}]" }
+                            scope.launch {
+                                cancion?.let {
+                                    viewModel.actualizarCancion(it.copy(titulo = titulo, autor = autor, ritmo = ritmo, letraOriginal = letraNormalizada, tieneAcordes = letraNormalizada.contains("["), ultimaEdicion = System.currentTimeMillis()))
                                     onNavegarAtras()
                                 }
                             }
-                        }
-                    ) {
-                        Icon(Icons.Default.Check, contentDescription = "Guardar Cambios")
-                    }
+                        },
+                        enabled = cancion != null && titulo.isNotBlank() && letraValue.text.isNotBlank()
+                    ) { Icon(Icons.Default.Check, "Guardar") }
                 }
             )
         }
     ) { paddingValues ->
         if (cancion == null) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                OutlinedTextField(
-                    value = titulo,
-                    onValueChange = { titulo = it },
-                    label = { Text("Título de la canción") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+            Box(modifier = Modifier.fillMaxSize().padding(paddingValues)) {
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    OutlinedTextField(value = titulo, onValueChange = { titulo = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(value = autor, onValueChange = { autor = it }, label = { Text("Autor") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
 
-                OutlinedTextField(
-                    value = autor,
-                    onValueChange = { autor = it },
-                    label = { Text("Autor") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
-
-                // Selector de Ritmo (Ahora sí se guarda)
-                ExposedDropdownMenuBox(
-                    expanded = isRhythmExpanded,
-                    onExpandedChange = { isRhythmExpanded = !isRhythmExpanded },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    OutlinedTextField(
-                        value = ritmo,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text("Ritmo sugerido") },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isRhythmExpanded) },
-                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(
-                        expanded = isRhythmExpanded,
-                        onDismissRequest = { isRhythmExpanded = false }
-                    ) {
-                        rhythmOptions.forEach { opcion ->
-                            DropdownMenuItem(
-                                text = { Text(opcion) },
-                                onClick = {
-                                    ritmo = opcion
-                                    isRhythmExpanded = false
-                                }
-                            )
+                    ExposedDropdownMenuBox(expanded = isRhythmExpanded, onExpandedChange = { isRhythmExpanded = it }, modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(value = ritmo, onValueChange = {}, readOnly = true, label = { Text("Ritmo sugerido") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isRhythmExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
+                        ExposedDropdownMenu(expanded = isRhythmExpanded, onDismissRequest = { isRhythmExpanded = false }) {
+                            rhythmOptions.forEach { op -> DropdownMenuItem(text = { Text(op) }, onClick = { ritmo = op; isRhythmExpanded = false }) }
                         }
                     }
-                }
 
-                Box(modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)) {
-                    OutlinedTextField(
-                        value = letraOriginal,
-                        onValueChange = { letraOriginal = it },
-                        label = { Text("Letra y Acordes") },
-                        modifier = Modifier.fillMaxSize(),
-                        supportingText = { Text("Usa el formato [Am]Letra para los acordes") }
-                    )
-                    
-                     Column(
-                        modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(16.dp)
-                    ) {
-                        FloatingActionButton(
-                            onClick = {
-                                val action = { pickImageLauncher.launch("image/*") }
-                                if (letraOriginal.isNotBlank()) {
-                                    currentAction = action
-                                    showOverwriteDialog = true
-                                } else {
-                                    shouldAppendScannedText = false
-                                    checkAndExecuteAction(action)
-                                }
-                            },
-                            modifier = Modifier.padding(bottom = 16.dp)
+                    // Cuadro de Letra con Panel Interno
+                    Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                        OutlinedTextField(
+                            value = letraValue,
+                            onValueChange = { letraValue = it },
+                            modifier = Modifier.fillMaxSize(),
+                            label = { Text("Letra y Acordes") }
+                        )
+
+                        Surface(
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(8.dp).fillMaxWidth(0.95f),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                            tonalElevation = 4.dp
                         ) {
-                            Icon(Icons.Default.CropOriginal, contentDescription = "Galería")
-                        }
-
-                        FloatingActionButton(
-                            onClick = {
-                                val action = {
-                                    when (PackageManager.PERMISSION_GRANTED) {
-                                        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) -> {
-                                            launchCamera()
-                                        }
-                                        else -> {
-                                            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (showNotesBar) {
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        if (selectedRootNote == null) {
+                                            roots.forEach { note -> TextButton(onClick = { selectedRootNote = note }, contentPadding = PaddingValues(4.dp)) { Text(note, fontWeight = FontWeight.Bold, fontSize = 18.sp) } }
+                                        } else {
+                                            IconButton(onClick = { selectedRootNote = null }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ArrowBack, null, tint = Color.Red) }
+                                            variations.forEach { variant -> TextButton(onClick = { insertarAcorde("$selectedRootNote$variant") }, contentPadding = PaddingValues(4.dp)) { Text(if (variant.isEmpty()) "M" else variant, fontSize = 16.sp) } }
                                         }
                                     }
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                                 }
-                                if (letraOriginal.isNotBlank()) {
-                                    currentAction = action
-                                    showOverwriteDialog = true
-                                } else {
-                                    shouldAppendScannedText = false
-                                    checkAndExecuteAction(action)
+
+                                Row(modifier = Modifier.padding(4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { showNotesBar = !showNotesBar }) {
+                                        Icon(Icons.Default.MusicNote, "Teclado Musical", tint = if (showNotesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    IconButton(onClick = {
+                                        val act = { pickImageLauncher.launch("image/*") }
+                                        if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
+                                    }) { Icon(Icons.Default.CropOriginal, "Galería", tint = MaterialTheme.colorScheme.primary) }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    IconButton(onClick = {
+                                        val act = {
+                                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCamera()
+                                            else { currentAction = { launchCamera() }; requestPermissionLauncher.launch(Manifest.permission.CAMERA) }
+                                        }
+                                        if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
+                                    }) { Icon(Icons.Default.PhotoCamera, "Cámara", tint = MaterialTheme.colorScheme.primary) }
                                 }
                             }
-                        ) {
-                            Icon(Icons.Default.PhotoCamera, contentDescription = "Cámara")
                         }
                     }
                 }

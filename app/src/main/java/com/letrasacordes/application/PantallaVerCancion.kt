@@ -318,10 +318,7 @@ fun PantallaVerCancion(
                                 items(acordesUnicos) { acorde ->
                                     AssistChip(
                                         onClick = { acordeSeleccionado = acorde },
-                                        label = { Text(acorde, fontWeight = FontWeight.Bold) },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        }
+                                        label = { Text(acorde, fontWeight = FontWeight.Bold) }
                                     )
                                 }
                             }

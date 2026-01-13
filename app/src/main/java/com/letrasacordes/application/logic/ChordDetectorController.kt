@@ -28,20 +28,28 @@ class ChordDetectorController {
     var onChordDetected: ((PolyphonicTunerResult) -> Unit)? = null
 
     companion object {
-        private const val SAMPLE_RATE = 22050 // Bajamos sample rate para mejor resolución en bajos con FFT pequeña
-        private const val FFT_SIZE = 4096 // Suficiente resolución (~5Hz por bin)
+        // Reducimos el sample rate a 11025Hz para duplicar la resolución en las frecuencias bajas (guitarra)
+        private const val SAMPLE_RATE = 11025 
+        private const val FFT_SIZE = 4096 // Resolución de ~2.7Hz por bin. Ideal para cuerdas graves.
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         
         private val NOTE_NAMES = listOf("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
         
-        // Fórmulas de acordes (Intervalos respecto a la raíz)
-        private val CHORD_FORMULAS = mapOf(
-            "" to listOf(0, 4, 7),      // Mayor
-            "m" to listOf(0, 3, 7),     // Menor
-            "7" to listOf(0, 4, 7, 10), // Séptima
-            "maj7" to listOf(0, 4, 7, 11),
-            "m7" to listOf(0, 3, 7, 10)
+        // Fórmulas de acordes con prioridad de "Popularidad"
+        // El primer valor es el sufijo, el segundo la fórmula, y el tercero el "Bono de Popularidad"
+        private val CHORD_DEFINITIONS = listOf(
+            Triple("", listOf(0, 4, 7), 0.20),      // Mayor (Prioridad Máxima)
+            Triple("m", listOf(0, 3, 7), 0.18),     // Menor (Prioridad Alta)
+            Triple("7", listOf(0, 4, 7, 10), 0.10), // Séptima
+            Triple("maj7", listOf(0, 4, 7, 11), 0.05),
+            Triple("m7", listOf(0, 3, 7, 10), 0.05),
+            Triple("dim", listOf(0, 3, 6), 0.02),
+            Triple("dim7", listOf(0, 3, 6, 9), 0.01),
+            Triple("m7b5", listOf(0, 3, 6, 10), 0.01),
+            Triple("aug", listOf(0, 4, 8), 0.01),
+            Triple("sus4", listOf(0, 5, 7), 0.05),
+            Triple("sus2", listOf(0, 2, 7), 0.05)
         )
     }
 
@@ -73,20 +81,16 @@ class ChordDetectorController {
             while (isActive && isListening) {
                 val read = audioRecord?.read(audioBuffer, 0, FFT_SIZE) ?: 0
                 if (read == FFT_SIZE) {
-                    // 1. Calcular RMS para ignorar fondo
                     val rms = calculateRMS(audioBuffer)
-                    if (rms > 400) {
-                        // 2. Preparar para FFT (Ventana de Hanning para suavizar)
+                    if (rms > 350) { // Un poco más sensible
                         for (i in 0 until FFT_SIZE) {
                             val window = 0.5 * (1 - cos(2.0 * PI * i / (FFT_SIZE - 1)))
                             real[i] = audioBuffer[i].toDouble() * window
                             imag[i] = 0.0
                         }
 
-                        // 3. Ejecutar FFT
                         fft(real, imag)
 
-                        // 4. Analizar Espectro y Notas
                         val magnitudes = DoubleArray(FFT_SIZE / 2)
                         for (i in 0 until FFT_SIZE / 2) {
                             magnitudes[i] = sqrt(real[i] * real[i] + imag[i] * imag[i])
@@ -97,7 +101,8 @@ class ChordDetectorController {
                             val chord = matchChord(detectedNotes)
                             if (chord != null) {
                                 withContext(Dispatchers.Main) {
-                                    onChordDetected?.invoke(PolyphonicTunerResult(chord, 1.0f, (rms/5000f).coerceIn(0f, 1f)))
+                                    val amplitude = (rms.toFloat() / 5000f).coerceIn(0f, 1f)
+                                    onChordDetected?.invoke(PolyphonicTunerResult(chord, 1.0f, amplitude))
                                 }
                             }
                         }
@@ -107,7 +112,7 @@ class ChordDetectorController {
                         }
                     }
                 }
-                delay(100) // Procesar unas 10 veces por segundo para estabilidad
+                delay(80) // Respuesta ligeramente más rápida
             }
         }
     }
@@ -124,68 +129,75 @@ class ChordDetectorController {
 
     private fun calculateRMS(buffer: ShortArray): Double {
         var sum = 0.0
-        for (s in buffer) sum += s * s
+        for (s in buffer) sum += s.toDouble() * s.toDouble()
         return sqrt(sum / buffer.size)
     }
 
-    /**
-     * Encuentra las notas musicales con más energía en el espectro.
-     */
     private fun findProminentNotes(magnitudes: DoubleArray): Set<Int> {
         val noteEnergies = DoubleArray(12) { 0.0 }
         val binFreqStep = SAMPLE_RATE.toDouble() / FFT_SIZE
 
-        // Solo analizamos el rango fundamental de la guitarra (80Hz a 1000Hz)
-        val minBin = (80 / binFreqStep).toInt()
-        val maxBin = (1000 / binFreqStep).toInt()
+        // Guitarra: E2 (82Hz) hasta armónicos altos útiles (~1200Hz)
+        val minBin = (75 / binFreqStep).toInt()
+        val maxBin = (1200 / binFreqStep).toInt()
 
         for (bin in minBin..maxBin) {
             val freq = bin * binFreqStep
             val mag = magnitudes[bin]
-            if (mag > 500) { // Umbral de magnitud
+            
+            // Filtro de ruido por bin
+            if (mag > 300) { 
                 val semitonesFromA4 = 12 * log2(freq / 440.0)
-                val noteIndex = ((semitonesFromA4 + 69).roundToInt() % 12 + 12) % 12
-                noteEnergies[noteIndex] += mag
+                val noteIndex = (((semitonesFromA4 + 69).roundToInt() % 12) + 12) % 12
+                
+                // Aplicamos un peso: las frecuencias fundamentales (más bajas) 
+                // suelen ser más importantes que los armónicos altos para identificar la nota
+                val weight = if (freq < 400) 1.2 else 0.8
+                noteEnergies[noteIndex] += mag * weight
             }
         }
 
-        // Devolvemos los índices de las notas que superan un porcentaje de la energía máxima
         val maxEnergy = noteEnergies.maxOrNull() ?: 0.0
-        if (maxEnergy < 1000) return emptySet()
+        if (maxEnergy < 600) return emptySet()
 
-        return noteEnergies.indices.filter { noteEnergies[it] > maxEnergy * 0.6 }.toSet()
+        // Umbral dinámico: capturamos notas que tengan al menos el 35% de la energía de la nota dominante
+        return noteEnergies.indices.filter { noteEnergies[it] > maxEnergy * 0.35 }.toSet()
     }
 
-    /**
-     * Compara las notas detectadas contra el diccionario de fórmulas.
-     */
     private fun matchChord(detectedNoteIndices: Set<Int>): String? {
         if (detectedNoteIndices.isEmpty()) return null
 
-        // Probamos cada nota detectada como posible raíz del acorde
-        for (root in detectedNoteIndices) {
-            for ((suffix, formula) in CHORD_FORMULAS) {
+        val candidates = mutableListOf<Pair<String, Double>>()
+
+        for (root in 0..11) {
+            for ((suffix, formula, popularityBonus) in CHORD_DEFINITIONS) {
                 val requiredNotes = formula.map { (root + it) % 12 }.toSet()
+                val intersection = detectedNoteIndices.intersect(requiredNotes)
                 
-                // Si todas las notas de la fórmula están presentes en las detectadas
-                if (detectedNoteIndices.containsAll(requiredNotes)) {
-                    return NOTE_NAMES[root] + suffix
+                // Coincidencia básica
+                val matchRatio = intersection.size.toDouble() / requiredNotes.size
+                
+                if (matchRatio >= 0.70) { // Bajamos un poco el ratio mínimo para compensar ruidos
+                    val extraNotes = (detectedNoteIndices - requiredNotes).size
+                    
+                    // Calculamos puntuación final:
+                    // Ratio base + Bono de popularidad - Penalización por notas "basura" detectadas
+                    val score = matchRatio + popularityBonus - (extraNotes * 0.08)
+                    
+                    candidates.add((NOTE_NAMES[root] + suffix) to score)
                 }
             }
         }
         
-        // Si no es un acorde claro, devolvemos la nota más fuerte (monofónico fallback)
-        return null 
+        // Retornamos el acorde con mayor puntuación. 
+        // Gracias al popularityBonus, ante la duda (ej: entre C y Cmaj7), 
+        // el sistema preferirá el acorde más común (C) a menos que la 7ma sea muy clara.
+        return candidates.maxByOrNull { it.second }?.first
     }
 
-    /**
-     * Implementación básica de FFT Radix-2
-     */
     private fun fft(re: DoubleArray, im: DoubleArray) {
         val n = re.size
         if (n <= 1) return
-
-        // Bit-reversal permutation
         var j = 0
         for (i in 0 until n) {
             if (i < j) {
@@ -199,8 +211,6 @@ class ChordDetectorController {
             }
             j += m
         }
-
-        // Butterfly computations
         var len = 2
         while (len <= n) {
             val angle = 2.0 * PI / len

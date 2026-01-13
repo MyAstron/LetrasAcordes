@@ -15,7 +15,8 @@ data class TunerResult(
     val frequency: Double,
     val noteName: String,
     val centsOff: Int, // Desviación en cents (-50 a +50)
-    val isLocked: Boolean // Si la señal es estable
+    val isLocked: Boolean, // Si la señal es estable
+    val amplitude: Float // Amplitud normalizada (0.0 a 1.0) para visualización
 )
 
 class MicrophoneTunerController {
@@ -45,7 +46,7 @@ class MicrophoneTunerController {
             return
         }
 
-        // Buffer más grande para mejor precisión en frecuencias bajas
+        // Buffer para procesar
         val bufferSize = maxOf(minBufferSize, 4096)
         
         try {
@@ -72,26 +73,36 @@ class MicrophoneTunerController {
                     val readResult = audioRecord?.read(buffer, 0, bufferSize) ?: 0
                     
                     if (readResult > 0) {
-                        // Convertir a double para procesar
                         for (i in 0 until readResult) {
                             bufferDouble[i] = buffer[i].toDouble()
                         }
                         
-                        // 1. Detectar si hay suficiente volumen (Gate)
                         val rms = calculateRMS(bufferDouble, readResult)
-                        if (rms > 500) { // Umbral de silencio
-                            // 2. Detectar frecuencia (Algoritmo YIN simplificado / Autocorrelación)
+                        // Normalizar amplitud para la UI (aproximado)
+                        val normalizedAmp = (rms / 5000.0).toFloat().coerceIn(0f, 1f)
+                        
+                        if (rms > 300) { // Umbral de silencio un poco más bajo para visualización
                             val frequency = detectPitch(bufferDouble, readResult, SAMPLE_RATE)
                             
-                            if (frequency > 60 && frequency < 1000) { // Rango razonable para guitarra
-                                val result = calculateNote(frequency)
+                            if (frequency > 60 && frequency < 1000) {
+                                val result = calculateNote(frequency, normalizedAmp)
                                 withContext(Dispatchers.Main) {
                                     onTunerUpdate?.invoke(result)
                                 }
+                            } else {
+                                // Aún mandamos actualización de amplitud aunque no haya nota clara
+                                withContext(Dispatchers.Main) {
+                                    onTunerUpdate?.invoke(TunerResult(0.0, "--", 0, false, normalizedAmp))
+                                }
+                            }
+                        } else {
+                            // Silencio
+                            withContext(Dispatchers.Main) {
+                                onTunerUpdate?.invoke(TunerResult(0.0, "--", 0, false, 0f))
                             }
                         }
                     }
-                    delay(50) // Procesar ~20 veces por segundo
+                    delay(30) // Más rápido para visualización fluida
                 }
             }
         } catch (e: Exception) {
@@ -120,27 +131,19 @@ class MicrophoneTunerController {
         return kotlin.math.sqrt(sum / length)
     }
 
-    // Algoritmo simple de cruce por cero o autocorrelación sería mejor.
-    // Usaremos Autocorrelación (ACF) básica optimizada.
     private fun detectPitch(buffer: DoubleArray, length: Int, sampleRate: Int): Double {
-        // Autocorrelación
         val n = length
-        val bestLagSearchStart = sampleRate / 1000 // Máxima freq esperada
-        val bestLagSearchEnd = sampleRate / 60 // Mínima freq esperada
+        val bestLagSearchStart = sampleRate / 1000
+        val bestLagSearchEnd = sampleRate / 60
         
         var bestCorrelation = -1.0
         var bestLag = -1
 
-        // Buscamos el primer pico significativo
         for (lag in bestLagSearchStart until minOf(bestLagSearchEnd, n / 2)) {
             var correlation = 0.0
             for (i in 0 until (n - lag)) {
                 correlation += buffer[i] * buffer[i + lag]
             }
-            
-            // Normalizar (opcional, pero ayuda)
-            // Aquí usamos ACF crudo y buscamos picos.
-            // Para simplificar, buscamos el máximo en el rango.
             
             if (correlation > bestCorrelation) {
                 bestCorrelation = correlation
@@ -148,14 +151,6 @@ class MicrophoneTunerController {
             }
         }
         
-        // Refinamiento (interpolación parabólica para mayor precisión)
-        // Esto es crucial para afinadores.
-        // Si bestLag está en los bordes no podemos interpolar
-        if (bestLag > 0 && bestLag < (n/2) - 1) {
-             // ... implementación compleja omitida por brevedad y estabilidad, 
-             // usando lag directo por ahora.
-        }
-
         if (bestLag > 0) {
             return sampleRate.toDouble() / bestLag
         }
@@ -163,19 +158,15 @@ class MicrophoneTunerController {
         return 0.0
     }
 
-    private fun calculateNote(frequency: Double): TunerResult {
-        // Fórmula: n = 12 * log2(freq / 440) + 69 (donde 69 es A4 MIDI)
-        // Usaremos distancia a A4
+    private fun calculateNote(frequency: Double, amplitude: Float): TunerResult {
         val semitonesFromA4 = 12 * log2(frequency / A4_FREQ)
-        val noteIndexRaw = (semitonesFromA4 + 69).roundToInt() // MIDI note number
+        val noteIndexRaw = (semitonesFromA4 + 69).roundToInt()
         
-        val noteIndex = (noteIndexRaw % 12) // 0..11
-        // Ajuste para índices negativos si fuera necesario (no debería con frecuencias > 60Hz)
+        val noteIndex = (noteIndexRaw % 12)
         val normalizedIndex = if (noteIndex < 0) noteIndex + 12 else noteIndex
         
         val noteName = NOTE_NAMES[normalizedIndex]
         
-        // Calcular cents de desviación
         val idealFreq = A4_FREQ * 2.0.pow((noteIndexRaw - 69) / 12.0)
         val cents = 1200 * log2(frequency / idealFreq)
         
@@ -183,7 +174,8 @@ class MicrophoneTunerController {
             frequency = frequency,
             noteName = noteName,
             centsOff = cents.roundToInt(),
-            isLocked = abs(cents) < 5
+            isLocked = abs(cents) < 5,
+            amplitude = amplitude
         )
     }
 }

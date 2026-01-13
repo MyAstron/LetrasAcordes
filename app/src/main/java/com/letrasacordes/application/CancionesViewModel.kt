@@ -131,10 +131,9 @@ class CancionesViewModel(
         tieneAcordes: Boolean
     ) {
         val timestamp = System.currentTimeMillis()
-        // Limpiamos tanto corchetes [...] como llaves {...}
         val letraLimpia = letra.replace(Regex("(\\[.*?\\]|\\{.*?\\})"), "")
         
-        // Usamos TonalidadUtil para obtener el primer acorde real, ignorando intros
+        // Solo buscamos tono si realmente el usuario marcó que tiene acordes
         val primerAcorde = if (tieneAcordes) TonalidadUtil.obtenerPrimerAcorde(letra) else null
         
         val nuevaCancion = Cancion(
@@ -143,7 +142,8 @@ class CancionesViewModel(
             ritmo = ritmo?.trim().takeIf { !it.isNullOrBlank() },
             letraOriginal = letra,
             tieneAcordes = tieneAcordes,
-            tonoOriginal = if (tieneAcordes) primerAcorde?.takeIf { it.isNotBlank() } ?: "C" else null,
+            // Si tiene acordes pero no detectamos el primero, ponemos "C", si no, queda NULL
+            tonoOriginal = if (tieneAcordes) (primerAcorde ?: "C") else null,
             letraSinAcordes = letraLimpia,
             fechaCreacion = timestamp,
             ultimaEdicion = timestamp
@@ -152,15 +152,17 @@ class CancionesViewModel(
     }
 
     suspend fun actualizarCancion(cancion: Cancion) {
-        // Limpiamos tanto corchetes [...] como llaves {...}
         val letraLimpia = cancion.letraOriginal.replace(Regex("(\\[.*?\\]|\\{.*?\\})"), "")
         
-        // Usamos TonalidadUtil para obtener el primer acorde real al actualizar también
-        val primerAcorde = if (cancion.tieneAcordes) TonalidadUtil.obtenerPrimerAcorde(cancion.letraOriginal) else null
+        // Recalculamos si tiene acordes basándonos en el contenido actual
+        val tieneAcordesActual = cancion.letraOriginal.contains("[") && cancion.letraOriginal.contains("]")
+        val primerAcorde = if (tieneAcordesActual) TonalidadUtil.obtenerPrimerAcorde(cancion.letraOriginal) else null
         
         val cancionActualizada = cancion.copy(
             letraSinAcordes = letraLimpia,
-            tonoOriginal = primerAcorde ?: "C",
+            tieneAcordes = tieneAcordesActual,
+            // Solo asignamos tono si realmente hay acordes
+            tonoOriginal = if (tieneAcordesActual) (primerAcorde ?: "C") else null,
             ultimaEdicion = System.currentTimeMillis()
         )
         dao.actualizar(cancionActualizada)
@@ -196,7 +198,6 @@ class CancionesViewModel(
         val textoImportado = try {
             GZIPInputStream(ByteArrayInputStream(datosArchivo)).bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
         } catch (e: Exception) {
-            // Fallback para archivos antiguos que podrían no estar comprimidos
             try {
                 String(datosArchivo, StandardCharsets.UTF_8)
             } catch (e2: Exception) {
