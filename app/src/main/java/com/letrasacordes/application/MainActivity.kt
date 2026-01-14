@@ -355,7 +355,7 @@ fun CancionItem(cancion: Cancion, modifier: Modifier = Modifier) {
                 // Muestra el tono original si existe
                 if (cancion.tonoOriginal != null) {
                     Text(
-                        text = " • ${cancion.tonoOriginal}",
+                        text = " • Tono: ${cancion.tonoOriginal}",
                         style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(start = 8.dp)
                     )

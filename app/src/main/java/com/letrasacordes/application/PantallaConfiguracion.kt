@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,10 +53,17 @@ fun PantallaConfiguracion(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     var mostrarDialogoExportar by remember { mutableStateOf(false) }
     var mostrarAfinador by remember { mutableStateOf(false) }
+    
+    // Estado del perfil del usuario
+    var userProfile by remember { 
+        mutableStateOf(sharedPreferences.getString("user_profile", "GUITARRA") ?: "GUITARRA") 
+    }
+
     val todasLasCanciones by viewModel.todasLasCanciones.collectAsState()
     val categorias by viewModel.categorias.collectAsState()
     val cancionesSeleccionadas = remember { mutableStateMapOf<Int, Boolean>() }
@@ -123,6 +132,71 @@ fun PantallaConfiguracion(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // SECCIÓN: PERFIL DE USUARIO
+            Text(
+                "Perfil de Usuario",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Start)
+            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Opción Guitarrista
+                OutlinedCard(
+                    onClick = { 
+                        userProfile = "GUITARRA"
+                        sharedPreferences.edit().putString("user_profile", "GUITARRA").apply()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = if (userProfile == "GUITARRA") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                    ),
+                    border = CardDefaults.outlinedCardBorder(enabled = userProfile == "GUITARRA")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.MusicNote, contentDescription = null)
+                        Text("Guitarrista", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+                
+                // Opción Cantante
+                OutlinedCard(
+                    onClick = { 
+                        userProfile = "CANTANTE"
+                        sharedPreferences.edit().putString("user_profile", "CANTANTE").apply()
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = if (userProfile == "CANTANTE") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                    ),
+                    border = CardDefaults.outlinedCardBorder(enabled = userProfile == "CANTANTE")
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(Icons.Default.Person, contentDescription = null)
+                        Text("Cantante", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            }
+            
+            Text(
+                text = if (userProfile == "GUITARRA") 
+                    "Modo completo: Acordes, metrónomo y afinador activos." 
+                    else "Modo limpio: Solo letra, ideal para vocalistas.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            HorizontalDivider()
+
             Text(
                 "Herramientas",
                 style = MaterialTheme.typography.titleMedium,
@@ -130,9 +204,11 @@ fun PantallaConfiguracion(
                 modifier = Modifier.align(Alignment.Start)
             )
 
+            // El afinador solo es relevante para guitarristas
             Button(
                 onClick = { mostrarAfinador = true },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                enabled = userProfile == "GUITARRA"
             ) {
                 Text("Afinador Guitarra Clásica")
             }
@@ -183,6 +259,7 @@ fun PantallaConfiguracion(
     }
 }
 
+// ... Resto de componentes (GuitarString, DialogoAfinadorCromatico, etc.) se mantienen igual
 data class GuitarString(val label: String, val note: String, val freq: Double)
 
 @Composable

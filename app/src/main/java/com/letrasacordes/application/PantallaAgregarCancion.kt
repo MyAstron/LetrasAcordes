@@ -79,8 +79,7 @@ private fun isTokenChord(token: String): Boolean {
     if (CHORD_REGEX.matches(token)) return true
     if (token.contains("-") || token.contains("/")) {
         val parts = token.split(Regex("[-/]"))
-        val allPartsAreChords = parts.all { it.isBlank() || CHORD_REGEX.matches(it) }
-        if (allPartsAreChords && parts.any { it.isNotBlank() }) return true
+        if (parts.all { it.isBlank() || CHORD_REGEX.matches(it) } && parts.any { it.isNotBlank() }) return true
     }
     return false
 }
@@ -90,9 +89,7 @@ private fun isChordLine(line: String): Boolean {
     if (correctedLine.isBlank()) return false
     val words = correctedLine.split(WHITESPACE_REGEX).filter { it.isNotBlank() }
     if (words.isEmpty()) return false
-    val chordCount = words.count { isTokenChord(it) }
-    val chordRatio = chordCount.toDouble() / words.size
-    return chordRatio > 0.6
+    return (words.count { isTokenChord(it) }.toDouble() / words.size) > 0.6
 }
 
 private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine: VisionText.Line): String {
@@ -131,11 +128,7 @@ private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine
         val targetWord = targetElement.text
         val avgCharWidth = targetElementBox.width().toFloat() / targetWord.length.coerceAtLeast(1)
         val offset = (chordCenter - targetElementBox.left)
-        val insertionIndexInWord = if (avgCharWidth > 0f) {
-             (offset / avgCharWidth).toInt().coerceIn(0, targetWord.length)
-        } else {
-            0
-        }
+        val insertionIndexInWord = if (avgCharWidth > 0f) (offset / avgCharWidth).toInt().coerceIn(0, targetWord.length) else 0
         val displayChord = normalizeChordForDisplay(rawChordText)
         val entry = insertions.getOrPut(targetElementIndex) { mutableListOf() }
         entry.add("[$displayChord]" to insertionIndexInWord)
@@ -187,6 +180,10 @@ fun PantallaAgregarCancion(
     val roots = listOf("C", "D", "E", "F", "G", "A", "B")
     val variations = listOf("", "m", "7", "m7", "maj7", "#", "#m", "b", "bm")
 
+    // Estados de Modos Instrumentales
+    var showModesBar by remember { mutableStateOf(false) }
+    val instrumentalModes = listOf("INTRO", "FINAL", "PUENTE", "CIRCULO")
+
     // Estados de Transcripción (MODO PRUEBAS)
     var isDetectingChords by remember { mutableStateOf(false) }
     val chordDetector = remember { ChordDetectorController() }
@@ -194,14 +191,46 @@ fun PantallaAgregarCancion(
     
     val scope = rememberCoroutineScope()
 
-    // Lógica de inserción
+    val rhythmOptions = listOf("Balada", "Rock", "Pop", "Bolero", "Cumbia", "Salsa", "Arpegio", "Vals")
+
+    // Lógica inteligente de inserción
     fun insertarAcorde(acorde: String) {
-        val textoAcorde = "[$acorde]"
         val currentText = letraValue.text
         val selection = letraValue.selection
-        val newText = StringBuilder(currentText).insert(selection.start, textoAcorde).toString()
-        letraValue = TextFieldValue(text = newText, selection = TextRange(selection.start + textoAcorde.length))
+        
+        // Comprobamos si el cursor está dentro de un bloque instrumental: [...] { ... | ... }
+        val textBefore = currentText.substring(0, selection.start)
+        val textAfter = currentText.substring(selection.start)
+        
+        val insideInstrumental = textBefore.contains(Regex("\\[.*?\\]\\s*\\{")) && 
+                                 !textBefore.substringAfterLast("{").contains("}") &&
+                                 textAfter.contains("}")
+        
+        val textoAInsertar = if (insideInstrumental) {
+            // Si estamos dentro de llaves, insertamos solo el acorde con un espacio opcional
+            if (textBefore.endsWith(" ") || textBefore.endsWith("{")) "$acorde " else " $acorde "
+        } else {
+            // Si no, usamos la sintaxis estándar de corchetes
+            "[$acorde]"
+        }
+        
+        val newText = StringBuilder(currentText).insert(selection.start, textoAInsertar).toString()
+        letraValue = TextFieldValue(text = newText, selection = TextRange(selection.start + textoAInsertar.length))
         selectedRootNote = null
+    }
+
+    fun insertarModoInstrumental(modo: String) {
+        val currentText = letraValue.text
+        val selection = letraValue.selection
+        val prefix = if (selection.start > 0 && currentText[selection.start - 1] != '\n') "\n" else ""
+        val middle = "[$modo]{ "
+        val suffix = " }"
+        val fullInsert = "$prefix$middle$suffix"
+        val newText = StringBuilder(currentText).insert(selection.start, fullInsert).toString()
+        val newCursorPos = selection.start + prefix.length + middle.length
+        letraValue = TextFieldValue(text = newText, selection = TextRange(newCursorPos))
+        showModesBar = false
+        showNotesBar = true 
     }
 
     // Lógica Mic (Visual)
@@ -255,7 +284,7 @@ fun PantallaAgregarCancion(
                         }
                         if (pendingChordLines.isNotEmpty()) {
                              val remaining = pendingChordLines.joinToString(" ") { cl ->
-                                cl.text.split(WHITESPACE_REGEX).filter { isTokenChord(it) }.joinToString(" ") { normalizeChordForDisplay(it) }
+                                cl.text.split(WHITESPACE_REGEX).filter { isTokenChord(it) }.joinToString(" ") { normalizeChordForDisplay(cl.text) }
                             }
                             if (remaining.isNotBlank()) processedLines.add("{ $remaining }")
                         }
@@ -284,13 +313,6 @@ fun PantallaAgregarCancion(
         if (sharedPreferences.getBoolean(KEY_SHOW_SCAN_WARNING, true)) { currentAction = action; showScanWarningDialog = true } else action()
     }
 
-    if (showTutorialDialog) {
-        TutorialDialog(onDismiss = { showTutorialDialog = false }, onFinishWithPreference = { doNotShow ->
-            if (doNotShow) sharedPreferences.edit().putBoolean(KEY_SHOW_TUTORIAL, false).apply()
-            showTutorialDialog = false
-        })
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -313,7 +335,7 @@ fun PantallaAgregarCancion(
                 OutlinedTextField(value = titulo, onValueChange = { titulo = it }, label = { Text("Título") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(value = autor, onValueChange = { autor = it }, label = { Text("Autor") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
 
-                // Selector de Ritmo (Dropdown)
+                // Selector de Ritmo
                 ExposedDropdownMenuBox(expanded = isRhythmExpanded, onExpandedChange = { isRhythmExpanded = it }, modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(value = ritmo, onValueChange = {}, readOnly = true, label = { Text("Ritmo sugerido") }, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isRhythmExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth())
                     ExposedDropdownMenu(expanded = isRhythmExpanded, onDismissRequest = { isRhythmExpanded = false }) {
@@ -332,7 +354,6 @@ fun PantallaAgregarCancion(
                         label = { Text("Letra y Acordes") }
                     )
 
-                    // PANEL DE CONTROL FIJO AL FONDO DEL CUADRO
                     Surface(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -343,41 +364,30 @@ fun PantallaAgregarCancion(
                         tonalElevation = 4.dp
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            // 1. Carril de Notas Musicales (Si está activo)
-                            if (showNotesBar) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    if (selectedRootNote == null) {
-                                        roots.forEach { note ->
-                                            TextButton(onClick = { selectedRootNote = note }, contentPadding = PaddingValues(4.dp)) {
-                                                Text(note, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                            }
-                                        }
-                                    } else {
-                                        IconButton(onClick = { selectedRootNote = null }, modifier = Modifier.size(32.dp)) {
-                                            Icon(Icons.Default.ArrowBack, null, tint = Color.Red)
-                                        }
-                                        variations.forEach { variant ->
-                                            TextButton(onClick = { insertarAcorde("$selectedRootNote$variant") }, contentPadding = PaddingValues(4.dp)) {
-                                                Text(if (variant.isEmpty()) "M" else variant, fontSize = 16.sp)
-                                            }
-                                        }
+                            if (showModesBar) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    instrumentalModes.forEach { modo ->
+                                        TextButton(onClick = { insertarModoInstrumental(modo) }) { Text(modo, fontWeight = FontWeight.Bold) }
                                     }
                                 }
                                 HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                             }
 
-                            // 2. Fila de Botones de Herramientas
-                            Row(
-                                modifier = Modifier.padding(4.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(onClick = { showNotesBar = !showNotesBar }) {
-                                    Icon(Icons.Default.MusicNote, "Teclado Musical", tint = if (showNotesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                            if (showNotesBar) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (selectedRootNote == null) {
+                                        roots.forEach { note -> TextButton(onClick = { selectedRootNote = note }, contentPadding = PaddingValues(4.dp)) { Text(note, fontWeight = FontWeight.Bold, fontSize = 18.sp) } }
+                                    } else {
+                                        IconButton(onClick = { selectedRootNote = null }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ArrowBack, null, tint = Color.Red) }
+                                        variations.forEach { variant -> TextButton(onClick = { insertarAcorde("$selectedRootNote$variant") }, contentPadding = PaddingValues(4.dp)) { Text(if (variant.isEmpty()) "M" else variant, fontSize = 16.sp) } }
+                                    }
+                                }
+                                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                            }
+
+                            Row(modifier = Modifier.padding(4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = { showNotesBar = !showNotesBar; if (showNotesBar) showModesBar = false }) {
+                                    Icon(Icons.Default.MusicNote, "Notas", tint = if (showNotesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 IconButton(onClick = {
@@ -392,22 +402,24 @@ fun PantallaAgregarCancion(
                                     }
                                     if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
                                 }) { Icon(Icons.Default.PhotoCamera, "Cámara", tint = MaterialTheme.colorScheme.primary) }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                IconButton(onClick = { showModesBar = !showModesBar; if (showModesBar) showNotesBar = false }) {
+                                    Icon(Icons.Default.Add, "Modos", tint = if (showModesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // Detección Polifónica (Overlay Pruebas)
+            // Overlay Pruebas
             if (isDetectingChords) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)).clickable { isDetectingChords = false }, contentAlignment = Alignment.Center) {
-                    Card(modifier = Modifier.size(200.dp), elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)) {
+                    Card(modifier = Modifier.size(200.dp)) {
                         Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             Text("Analizando Polifonía:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(currentDetectedChordLabel, style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text("Toca para detener", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -418,5 +430,5 @@ fun PantallaAgregarCancion(
 
 @Composable
 fun TutorialDialog(onDismiss: () -> Unit, onFinishWithPreference: (Boolean) -> Unit) {
-    // Se mantiene igual...
+    // Implementación del tutorial...
 }

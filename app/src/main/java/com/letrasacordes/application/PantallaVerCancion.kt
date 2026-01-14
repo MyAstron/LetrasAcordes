@@ -1,5 +1,6 @@
 package com.letrasacordes.application
 
+import android.content.Context
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -45,7 +46,12 @@ fun PantallaVerCancion(
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
     val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE) }
     
+    // Perfil del usuario
+    val userProfile = remember { sharedPreferences.getString("user_profile", "GUITARRA") ?: "GUITARRA" }
+    val isCantante = userProfile == "CANTANTE"
+
     // Control de Wakelock (Mantener pantalla encendida)
     DisposableEffect(Unit) {
         val window = (context as? ComponentActivity)?.window
@@ -64,13 +70,15 @@ fun PantallaVerCancion(
 
     val scope = rememberCoroutineScope()
     var semitonos by remember { mutableIntStateOf(0) }
-    var mostrarAcordes by remember { mutableStateOf(true) }
+    
+    // Si es cantante, forzamos mostrarAcordes a false
+    var mostrarAcordes by remember(isCantante) { mutableStateOf(!isCantante) }
+    
     var mostrarDialogoEliminar by remember { mutableStateOf(false) }
     var mostrarAjustes by remember { mutableStateOf(false) }
 
     var acordeSeleccionado by remember { mutableStateOf<String?>(null) }
     
-    // Modo Escenario (Alto Contraste)
     var modoEscenario by remember { mutableStateOf(false) }
 
     // Estado de Auto-Scroll
@@ -246,8 +254,8 @@ fun PantallaVerCancion(
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-                // Sección: Tonalidad y Acordes
-                if (cancionActual.tieneAcordes) {
+                // Sección: Tonalidad y Acordes (SOLO PARA GUITARRISTAS)
+                if (cancionActual.tieneAcordes && !isCantante) {
                     Text(
                         text = "Tonalidad y Acordes",
                         style = MaterialTheme.typography.titleMedium,
@@ -413,9 +421,11 @@ fun PantallaVerCancion(
                     } 
                 },
                 actions = {
-                    // Botón Metrónomo
-                    IconButton(onClick = { isMetronomeVisible = !isMetronomeVisible }) {
-                        Icon(Icons.Default.Timer, contentDescription = "Metrónomo", tint = iconColor)
+                    // Botón Metrónomo (SOLO PARA GUITARRISTAS)
+                    if (!isCantante) {
+                        IconButton(onClick = { isMetronomeVisible = !isMetronomeVisible }) {
+                            Icon(Icons.Default.Timer, contentDescription = "Metrónomo", tint = iconColor)
+                        }
                     }
                     IconButton(onClick = { mostrarAjustes = true }) {
                         Icon(Icons.Default.Tune, contentDescription = "Ajustes de Lectura", tint = iconColor)
@@ -443,12 +453,15 @@ fun PantallaVerCancion(
                         .verticalScroll(scrollState)
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        Text(
-                            text = cancionActual.ritmo ?: "",
-                            style = MaterialTheme.typography.titleMedium, 
-                            fontWeight = FontWeight.Light,
-                            color = textColor
-                        )
+                        // RITMO (SOLO PARA GUITARRISTAS)
+                        if (!isCantante) {
+                            Text(
+                                text = cancionActual.ritmo ?: "",
+                                style = MaterialTheme.typography.titleMedium, 
+                                fontWeight = FontWeight.Light,
+                                color = textColor
+                            )
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                     }
 
@@ -482,93 +495,75 @@ fun PantallaVerCancion(
                 }
             }
             
-            // Barra Flotante del Metrónomo (Alineada abajo)
-            AnimatedVisibility(
-                visible = isMetronomeVisible,
-                enter = slideInVertically { it },
-                exit = slideOutVertically { it },
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = metronomeSurfaceColor,
-                    shadowElevation = 8.dp
+            // Barra Flotante del Metrónomo (SOLO PARA GUITARRISTAS)
+            if (!isCantante) {
+                AnimatedVisibility(
+                    visible = isMetronomeVisible,
+                    enter = slideInVertically { it },
+                    exit = slideOutVertically { it },
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 ) {
-                    Row(
+                    Surface(
                         modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        color = metronomeSurfaceColor,
+                        shadowElevation = 8.dp
                     ) {
-                        // Play/Pause
-                        IconButton(onClick = {
-                            if (isMetronomePlaying) {
-                                metronomeController.stop()
-                                isMetronomePlaying = false
-                            } else {
-                                metronomeController.start(scope)
-                                isMetronomePlaying = true
-                            }
-                        }) {
-                            Icon(
-                                imageVector = if (isMetronomePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isMetronomePlaying) "Detener" else "Iniciar",
-                                tint = metronomeContentColor
-                            )
-                        }
-
-                        // Controles BPM
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
                             IconButton(onClick = {
-                                metronomeBpm = (metronomeBpm - 5).coerceAtLeast(30)
-                                metronomeController.setBpm(metronomeBpm)
+                                if (isMetronomePlaying) {
+                                    metronomeController.stop()
+                                    isMetronomePlaying = false
+                                } else {
+                                    metronomeController.start(scope)
+                                    isMetronomePlaying = true
+                                }
                             }) {
-                                Icon(Icons.Default.Remove, "Disminuir BPM", tint = metronomeContentColor)
+                                Icon(
+                                    imageVector = if (isMetronomePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (isMetronomePlaying) "Detener" else "Iniciar",
+                                    tint = metronomeContentColor
+                                )
+                            }
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(onClick = {
+                                    metronomeBpm = (metronomeBpm - 5).coerceAtLeast(30)
+                                    metronomeController.setBpm(metronomeBpm)
+                                }) {
+                                    Icon(Icons.Default.Remove, "Disminuir BPM", tint = metronomeContentColor)
+                                }
+                                
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(text = "$metronomeBpm", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = metronomeContentColor)
+                                    Text(text = "BPM", style = MaterialTheme.typography.labelSmall, color = metronomeContentColor.copy(alpha = 0.7f))
+                                }
+
+                                IconButton(onClick = {
+                                    metronomeBpm = (metronomeBpm + 5).coerceAtMost(300)
+                                    metronomeController.setBpm(metronomeBpm)
+                                }) {
+                                    Icon(Icons.Default.Add, "Aumentar BPM", tint = metronomeContentColor)
+                                }
                             }
                             
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(
-                                    text = "$metronomeBpm",
-                                    fontWeight = FontWeight.Bold,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = metronomeContentColor
-                                )
-                                Text(
-                                    text = "BPM",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = metronomeContentColor.copy(alpha = 0.7f)
-                                )
-                            }
-
+                            Box(modifier = Modifier.size(12.dp).background(color = if (beatIndicator) Color.Red else Color.Gray, shape = MaterialTheme.shapes.small))
+                            
                             IconButton(onClick = {
-                                metronomeBpm = (metronomeBpm + 5).coerceAtMost(300)
-                                metronomeController.setBpm(metronomeBpm)
+                                metronomeController.stop()
+                                isMetronomePlaying = false
+                                isMetronomeVisible = false
                             }) {
-                                Icon(Icons.Default.Add, "Aumentar BPM", tint = metronomeContentColor)
+                                Icon(Icons.Default.Close, "Cerrar Metrónomo", tint = metronomeContentColor)
                             }
-                        }
-                        
-                        // Indicador Visual (LED)
-                        Box(
-                            modifier = Modifier
-                                .size(12.dp)
-                                .background(
-                                    color = if (beatIndicator) Color.Red else Color.Gray,
-                                    shape = MaterialTheme.shapes.small
-                                )
-                        )
-                        
-                        // Cerrar
-                        IconButton(onClick = {
-                            metronomeController.stop()
-                            isMetronomePlaying = false
-                            isMetronomeVisible = false
-                        }) {
-                            Icon(Icons.Default.Close, "Cerrar Metrónomo", tint = metronomeContentColor)
                         }
                     }
                 }

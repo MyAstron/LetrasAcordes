@@ -42,7 +42,7 @@ import java.io.File
 import kotlin.math.abs
 import com.google.mlkit.vision.text.Text as VisionText
 
-// Expresiones regulares y lógica de normalización
+// Lógica de normalización y detección
 private const val CHORD_PATTERN = """^((Do|Re|Mi|Fa|Sol|La|Si|[A-G]|B7)(#|b)?(m|maj|dim|aug|sus|add|M|7|9|11|13|6|5|4|2|b5|#9|#5|b9|sus4|sus2|-|-|–|—|/)?(?:[0-9b#])*(?:/[A-G](?:#|b)?)?)$"""
 private val CHORD_REGEX = Regex(CHORD_PATTERN, RegexOption.IGNORE_CASE)
 private val CHORD_CLEANUP_REGEX = Regex("(#|b)\\s+[-–—]")
@@ -127,8 +127,9 @@ private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine
         val avgCharWidth = targetElementBox.width().toFloat() / targetWord.length.coerceAtLeast(1)
         val offset = (chordCenter - targetElementBox.left)
         val insertionIndexInWord = if (avgCharWidth > 0f) (offset / avgCharWidth).toInt().coerceIn(0, targetWord.length) else 0
+        val displayChord = normalizeChordForDisplay(rawChordText)
         val entry = insertions.getOrPut(targetElementIndex) { mutableListOf() }
-        entry.add("[$rawChordText]" to insertionIndexInWord)
+        entry.add("[$displayChord]" to insertionIndexInWord)
     }
 
     val finalLyricParts = lyricElements.map { it.text }.toMutableList()
@@ -137,7 +138,7 @@ private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine
         val sortedWordInsertions = wordInsertions.sortedByDescending { it.second }
         var currentWord = finalLyricParts[i]
         for ((chord, index) in sortedWordInsertions) {
-            currentWord = currentWord.substring(0, index) + "[${normalizeChordForDisplay(chord.replace("[","").replace("]",""))}]" + currentWord.substring(index)
+            currentWord = currentWord.substring(0, index) + chord + currentWord.substring(index)
         }
         finalLyricParts[i] = currentWord
     }
@@ -184,15 +185,38 @@ fun PantallaEditarCancion(
     val roots = listOf("C", "D", "E", "F", "G", "A", "B")
     val variations = listOf("", "m", "7", "m7", "maj7", "#", "#m", "b", "bm")
 
+    // Estados de Modos Instrumentales
+    var showModesBar by remember { mutableStateOf(false) }
+    val instrumentalModes = listOf("INTRO", "FINAL", "PUENTE", "CIRCULO")
+
     val scope = rememberCoroutineScope()
 
     val rhythmOptions = listOf("Balada", "Rock", "Pop", "Bolero", "Cumbia", "Salsa", "Arpegio", "Vals")
 
     fun insertarAcorde(acorde: String) {
-        val textoAcorde = "[$acorde]"
-        val newText = StringBuilder(letraValue.text).insert(letraValue.selection.start, textoAcorde).toString()
-        letraValue = TextFieldValue(text = newText, selection = TextRange(letraValue.selection.start + textoAcorde.length))
+        val currentText = letraValue.text
+        val selection = letraValue.selection
+        val textBefore = currentText.substring(0, selection.start)
+        val textAfter = currentText.substring(selection.start)
+        val insideInstrumental = textBefore.contains(Regex("\\[.*?\\]\\s*\\{")) && !textBefore.substringAfterLast("{").contains("}") && textAfter.contains("}")
+        val textoAInsertar = if (insideInstrumental) { if (textBefore.endsWith(" ") || textBefore.endsWith("{")) "$acorde " else " $acorde " } else { "[$acorde]" }
+        val newText = StringBuilder(currentText).insert(selection.start, textoAInsertar).toString()
+        letraValue = TextFieldValue(text = newText, selection = TextRange(selection.start + textoAInsertar.length))
         selectedRootNote = null
+    }
+
+    fun insertarModoInstrumental(modo: String) {
+        val currentText = letraValue.text
+        val selection = letraValue.selection
+        val prefix = if (selection.start > 0 && currentText[selection.start - 1] != '\n') "\n" else ""
+        val middle = "[$modo]{ "
+        val suffix = " }"
+        val fullInsert = "$prefix$middle$suffix"
+        val newText = StringBuilder(currentText).insert(selection.start, fullInsert).toString()
+        val newCursorPos = selection.start + prefix.length + middle.length
+        letraValue = TextFieldValue(text = newText, selection = TextRange(newCursorPos))
+        showModesBar = false
+        showNotesBar = true 
     }
 
     // ML Kit y Lanzadores
@@ -302,7 +326,7 @@ fun PantallaEditarCancion(
                         }
                     }
 
-                    // Cuadro de Letra con Panel Interno
+                    // Cuadro de Letra con Panel Interno Completo
                     Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                         OutlinedTextField(
                             value = letraValue,
@@ -318,6 +342,15 @@ fun PantallaEditarCancion(
                             tonalElevation = 4.dp
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (showModesBar) {
+                                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        instrumentalModes.forEach { modo ->
+                                            TextButton(onClick = { insertarModoInstrumental(modo) }) { Text(modo, fontWeight = FontWeight.Bold) }
+                                        }
+                                    }
+                                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                                }
+
                                 if (showNotesBar) {
                                     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                                         if (selectedRootNote == null) {
@@ -331,8 +364,8 @@ fun PantallaEditarCancion(
                                 }
 
                                 Row(modifier = Modifier.padding(4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(onClick = { showNotesBar = !showNotesBar }) {
-                                        Icon(Icons.Default.MusicNote, "Teclado Musical", tint = if (showNotesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                    IconButton(onClick = { showNotesBar = !showNotesBar; if (showNotesBar) showModesBar = false }) {
+                                        Icon(Icons.Default.MusicNote, "Notas", tint = if (showNotesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                                     }
                                     Spacer(modifier = Modifier.width(16.dp))
                                     IconButton(onClick = {
@@ -347,6 +380,10 @@ fun PantallaEditarCancion(
                                         }
                                         if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
                                     }) { Icon(Icons.Default.PhotoCamera, "Cámara", tint = MaterialTheme.colorScheme.primary) }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    IconButton(onClick = { showModesBar = !showModesBar; if (showModesBar) showNotesBar = false }) {
+                                        Icon(Icons.Default.Add, "Modos", tint = if (showModesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                                    }
                                 }
                             }
                         }
