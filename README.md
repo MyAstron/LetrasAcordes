@@ -1,52 +1,41 @@
-# 🎸 Melodias: Letras y Acordes (v2.4.8)
+# 🎸 Melodias: Letras y Acordes (v4.0.1)
+**Más que un visor de acordes: Una estación de trabajo inteligente para la interpretación en vivo.**
 
-[![Estado](https://img.shields.io/badge/Estado-En_Desarrollo-orange?style=for-the-badge&logo=android&logoColor=white)](https://github.com/MyAstron/LetrasAcordes)
-[![Kotlin](https://img.shields.io/badge/Hecho_con-Kotlin_100%25-purple?style=for-the-badge&logo=kotlin)](https://kotlinlang.org/)
+[![Kotlin](https://img.shields.io/badge/Kotlin-Native-7F52FF?style=for-the-badge&logo=kotlin)](https://kotlinlang.org/)
+[![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack_Compose-4285F4?style=for-the-badge&logo=android)](https://developer.android.com/jetpack/compose)
+[![Stage Ready](https://img.shields.io/badge/Stage-Ready-yellow?style=for-the-badge)](https://github.com/MyAstron/LetrasAcordes)
 
-**Melodias** es una potente herramienta para músicos que permite gestionar cancioneros digitales de forma profesional. Más que un simple visor, es un asistente completo para ensayos y presentaciones en vivo.
-
----
-
-## 📱 Vista Previa del Proyecto
-Aquí puedes ver las funciones principales en acción:
-
-| Gestión y Listas | Visor Inteligente | Herramientas de Lectura |
-|:---:|:---:|:---:|
-| <img src="./assets/main_screen.jpg" width="220"> | <img src="./assets/viewer.jpg" width="220"> | <img src="./assets/settings.jpg" width="220"> |
-| *Buscador y Categorías* | *Acordes alineados* | *Transposición y Scroll* |
+## 🎼 ¿Qué es "Melodias"?
+Melodias es una **Workstation Digital** diseñada para músicos profesionales y en formación. A diferencia de un lector de documentos estático, esta aplicación actúa como un **Asistente de Escenario** que adapta el contenido musical a las necesidades técnicas y físicas del intérprete en tiempo real.
 
 ---
 
-## ✨ Funciones Destacadas
+## 🛠️ Innovaciones y Tecnologías Implementadas
 
-### 🎼 Visor y Editor Avanzado
-* **Alineación Precisa:** Los acordes se mantienen exactamente sobre la sílaba correspondiente.
-* **Transpositor en Tiempo Real:** Cambia la tonalidad de cualquier canción con un solo toque (ej: de Dm a C#m).
-* **Importación Inteligente:** Soporte para agregar canciones mediante texto, con detección de contenido existente.
-* **OCR / Multimedia:** Iconos de cámara y galería listos para integración de escaneo de letras.
+### 1. Ecosistema de Intervención Dinámica
+La app procesa el texto musical "al vuelo" mediante un motor de renderizado que permite:
+* **Transposición Cromática:** Recálculo de acordes mediante lógica matemática modular.
+* **Modos de Rol (UI Adaptativa):** La interfaz muta según el usuario sea **GUITARRISTA** (muestra diagramas de acordes) o **CANTANTE** (maximiza la legibilidad del texto).
+* **Modo Escenario:** Esquema de alto contraste (Negro/Amarillo) diseñado para evitar deslumbramientos y fatiga visual en entornos oscuros o con luces de escenario.
 
-### 📄 Exportación a PDF (Cancionero)
-* Generación de documentos PDF profesionales.
-* **Modo Compacto:** Ahorra papel permitiendo canciones seguidas.
-* **Personalización:** Opción de incluir o quitar acordes e índice automático en el documento final.
+### 2. Sistemas Críticos de Interpretación
+* **Gestión de Energía (Wakelock):** Implementación de `FLAG_KEEP_SCREEN_ON` para garantizar que la pantalla permanezca activa durante toda la ejecución musical.
+* **Motor de Auto-Scroll Pro:** Desplazamiento automatizado sincronizado (~60 FPS) que permite al músico tocar sin interrupciones manuales.
+* **Afinador Cromático Integrado:** Procesamiento de señales de audio en tiempo real para capturar frecuencias (E2 a E4) y asistir en la afinación del instrumento.
+* **Metrónomo Inteligente:** Estimación automática de BPM basada en etiquetas de "Ritmo" detectadas en la canción.
 
-### ⏱️ Herramientas de Performance
-* **Auto-Scroll:** Desplazamiento automático ajustable por velocidad (1.0x, etc.) para tocar sin tocar la pantalla.
-* **Gestión de Listas:** Crea y edita categorías personalizadas (Playlists) para tus eventos o ensayos.
-
----
-
-## 🛠️ Detalles Técnicos
-* **Versión Actual:** 2.4.8
-* **Lenguaje:** Kotlin
-* **Persistencia:** Gestión de cancioneros locales.
-* **UI:** Interfaz moderna con soporte para Modo Oscuro y controles dinámicos.
-
-## 🚀 Próximos Pasos (WIP)
-* [ ] Optimizaciones de rendimiento en listas largas.
+### 3. Visión Artificial y Digitalización (OCR)
+Integración con **Google ML Kit** para transformar partituras físicas en código digital interactivo:
+* **The Merger:** Algoritmo de visión que fusiona líneas de texto y acordes manteniendo la alineación vertical original mediante análisis de `BoundingBox`.
+* **Normalización de Etiquetas:** Limpieza automática de texto para estandarizar secciones como `[INTRO]`, `[CORO]` y `[PUENTE]`.
 
 ---
 
-## 👤 Autor
-Desarrollado por **Cristopher (MyAstron)**.
-*© 2025 Click Doris / MyAstron*
+## 🏗️ Arquitectura de Software
+* **MVVM & Clean Architecture:** Separación estricta de lógica de negocio y UI.
+* **State Management Avanzado:** Uso de `StateFlow`, `mutableStateMapOf` y `LaunchedEffect` con claves dinámicas para una reactividad de alto rendimiento.
+* **Persistencia Local (Room):** Base de datos robusta para funcionamiento 100% offline.
+* **Protocolo de Archivos .la:** Sistema propietario de exportación/importación serializado en JSON y comprimido para el respaldo de repertorios.
+
+---
+**Desarrollado por Cristopher (MyAstron)** *Ingeniería de Software enfocada en soluciones para el mundo real.*
