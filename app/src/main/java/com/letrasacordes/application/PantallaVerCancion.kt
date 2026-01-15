@@ -1,18 +1,16 @@
 package com.letrasacordes.application
 
 import android.content.Context
-import android.view.WindowManager
-import androidx.activity.ComponentActivity
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -21,9 +19,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -31,8 +29,10 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.letrasacordes.application.logic.SongTextFormatter
 import com.letrasacordes.application.logic.TonalidadUtil
-import com.letrasacordes.application.ui.ChordDiagramDialog
+import com.letrasacordes.application.ui.theme.*
 import com.letrasacordes.application.ui.MetronomeController
+import com.letrasacordes.application.ui.ChordDiagram
+import com.letrasacordes.application.logic.ChordDictionary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -46,362 +46,58 @@ fun PantallaVerCancion(
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val sharedPreferences = remember { context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE) }
-    
-    // Perfil del usuario
     val userProfile = remember { sharedPreferences.getString("user_profile", "GUITARRA") ?: "GUITARRA" }
     val isCantante = userProfile == "CANTANTE"
 
-    // Control de Wakelock (Mantener pantalla encendida)
-    DisposableEffect(Unit) {
-        val window = (context as? ComponentActivity)?.window
-        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose {
-            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        }
-    }
+    LaunchedEffect(cancionId) { viewModel.cargarCancion(cancionId) }
+    val cancionActual by viewModel.cancionSeleccionada.collectAsState()
 
-    LaunchedEffect(cancionId) {
-        viewModel.cargarCancion(cancionId)
-    }
-
-    val cancionState by viewModel.cancionSeleccionada.collectAsState()
-    val cancionActual = cancionState
-
-    val scope = rememberCoroutineScope()
     var semitonos by remember { mutableIntStateOf(0) }
-    
-    // Si es cantante, forzamos mostrarAcordes a false
     var mostrarAcordes by remember(isCantante) { mutableStateOf(!isCantante) }
-    
-    var mostrarDialogoEliminar by remember { mutableStateOf(false) }
-    var mostrarAjustes by remember { mutableStateOf(false) }
-
-    var acordeSeleccionado by remember { mutableStateOf<String?>(null) }
-    
-    var modoEscenario by remember { mutableStateOf(false) }
-
-    // Estado de Auto-Scroll
     var isAutoScrolling by remember { mutableStateOf(false) }
     var scrollSpeed by remember { mutableFloatStateOf(1.0f) }
+    var altoContraste by remember { mutableStateOf(false) }
+    var mostrarRielDiagramas by remember { mutableStateOf(false) }
+    var mostrarConfirmarEliminar by remember { mutableStateOf(false) }
+    
+    val metronome = remember { MetronomeController() }
+    var isMetronomeRunning by remember { mutableStateOf(false) }
+    var bpm by remember { mutableIntStateOf(100) }
+
     val scrollState = rememberScrollState()
 
-    // Metrónomo
-    val metronomeController = remember { MetronomeController() }
-    var isMetronomeVisible by remember { mutableStateOf(false) }
-    var metronomeBpm by remember { mutableIntStateOf(120) }
-    var isMetronomePlaying by remember { mutableStateOf(false) }
-    var beatIndicator by remember { mutableStateOf(false) }
-    
-    // Configurar ritmo inicial del metrónomo
     LaunchedEffect(cancionActual) {
-        if (cancionActual != null) {
-            val ritmo = cancionActual.ritmo
-            val bpm = metronomeController.parseBpmFromRhythm(ritmo) ?: metronomeController.estimateBpmFromStyle(ritmo)
-            metronomeBpm = bpm
-            metronomeController.setBpm(bpm)
-        }
-    }
-    
-    // Callback visual del beat
-    DisposableEffect(metronomeController) {
-        metronomeController.onBeat = {
-            beatIndicator = true
-        }
-        onDispose {
-            metronomeController.release()
-        }
-    }
-    
-    // Apagar indicador visual después de un momento
-    LaunchedEffect(beatIndicator) {
-        if (beatIndicator) {
-            delay(100)
-            beatIndicator = false
+        cancionActual?.ritmo?.let {
+            bpm = metronome.parseBpmFromRhythm(it) ?: metronome.estimateBpmFromStyle(it)
+            metronome.setBpm(bpm)
         }
     }
 
-    // Lógica de Auto-Scroll
+    DisposableEffect(Unit) { onDispose { metronome.release() } }
+
+    val backgroundBrush = if (altoContraste) Brush.verticalGradient(listOf(Color.Black, Color.Black)) 
+                         else Brush.verticalGradient(listOf(AzulProfundo, AzulMedio))
+
     LaunchedEffect(isAutoScrolling, scrollSpeed) {
         if (isAutoScrolling) {
             while (isActive) {
-                scrollState.scrollBy(scrollSpeed) 
-                delay(16) // ~60 FPS
+                scrollState.scrollBy(scrollSpeed)
+                delay(16)
             }
         }
     }
 
-    val tonoOriginal = remember(cancionActual) {
-        cancionActual?.let { TonalidadUtil.obtenerPrimerAcorde(it.letraOriginal) }
-    }
-    
-    val lineasDeCancion = remember(cancionActual, semitonos, mostrarAcordes) {
-        if (cancionActual != null) {
-            SongTextFormatter.formatSongTextForDisplay(cancionActual.letraOriginal, semitonos, mostrarAcordes)
-        } else {
-            emptyList()
-        }
-    }
-
-    val acordesUnicos = remember(lineasDeCancion) {
-        lineasDeCancion.flatMap { (lineaAcordes, _) ->
-            val textoParaAnalizar = if (lineaAcordes.contains(":")) {
-                lineaAcordes.substringAfter(":")
-            } else {
-                lineaAcordes
-            }
-            textoParaAnalizar.split("\\s+".toRegex())
-        }
-        .filter { it.isNotBlank() && it.matches(Regex("^[A-G].*")) }
-        .distinct()
-        .sorted()
-    }
-    
-    // Definición de colores según el Modo Escenario
-    val backgroundColor = if (modoEscenario) Color.Black else MaterialTheme.colorScheme.background
-    val textColor = if (modoEscenario) Color.White else MaterialTheme.colorScheme.onBackground
-    val chordColor = if (modoEscenario) Color.Yellow else MaterialTheme.colorScheme.primary
-    val titleColor = if (modoEscenario) Color.White else MaterialTheme.colorScheme.onBackground
-    val iconColor = if (modoEscenario) Color.White else MaterialTheme.colorScheme.onSurface
-    
-    // Colores Metrónomo
-    val metronomeSurfaceColor = if (modoEscenario) Color(0xFF222222) else MaterialTheme.colorScheme.surfaceVariant
-    val metronomeContentColor = if (modoEscenario) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-
-    // Bottom Sheet de Ajustes
-    if (mostrarAjustes && cancionActual != null) {
-        ModalBottomSheet(
-            onDismissRequest = { mostrarAjustes = false },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(bottom = 32.dp)
-            ) {
-                Text(
-                    text = "Ajustes de ${cancionActual.titulo}, ${cancionActual.autor ?: " "}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                
-                // Sección: Modo Escenario
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { modoEscenario = !modoEscenario },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = modoEscenario, onCheckedChange = null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column {
-                        Text(text = "Modo Escenario (Alto Contraste)", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            text = "Fondo negro, letras blancas y acordes amarillos para mejor visibilidad.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                
-                // Sección: Información
-                Text(
-                    text = "Información",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Sección: Auto-Scroll
-                Text(
-                    text = "Auto-Scroll",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    FilledIconButton(
-                        onClick = { 
-                            isAutoScrolling = !isAutoScrolling 
-                            if (isAutoScrolling) {
-                                mostrarAjustes = false
-                            }
-                        },
-                        modifier = Modifier.size(48.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (isAutoScrolling) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isAutoScrolling) "Pausar" else "Iniciar"
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(text = "Velocidad: ${String.format("%.1f", scrollSpeed)}")
-                }
-                Slider(
-                    value = scrollSpeed,
-                    onValueChange = { scrollSpeed = it },
-                    valueRange = 0.5f..5.0f,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                // Sección: Tonalidad y Acordes (SOLO PARA GUITARRISTAS)
-                if (cancionActual.tieneAcordes && !isCantante) {
-                    Text(
-                        text = "Tonalidad y Acordes",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Mostrar Acordes")
-                        Switch(
-                            checked = mostrarAcordes,
-                            onCheckedChange = { mostrarAcordes = it }
-                        )
-                    }
-                    
-                    if (mostrarAcordes) {
-                        if (tonoOriginal != null) {
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val tonoAbajo = TonalidadUtil.transponerAcorde(tonoOriginal, semitonos - 1)
-                                val tonoActualTranspuesto = TonalidadUtil.transponerAcorde(tonoOriginal, semitonos)
-                                val tonoArriba = TonalidadUtil.transponerAcorde(tonoOriginal, semitonos + 1)
-
-                                OutlinedButton(
-                                    onClick = { semitonos-- },
-                                    shape = MaterialTheme.shapes.extraLarge
-                                ) {
-                                    Text("- $tonoAbajo")
-                                }
-                                
-                                Text(
-                                    text = tonoActualTranspuesto,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 24.dp)
-                                )
-                                
-                                OutlinedButton(
-                                    onClick = { semitonos++ },
-                                    shape = MaterialTheme.shapes.extraLarge
-                                ) {
-                                    Text("+ $tonoArriba")
-                                }
-                            }
-                        }
-
-                        if (acordesUnicos.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                "Ver Diagramas:",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(acordesUnicos) { acorde ->
-                                    AssistChip(
-                                        onClick = { acordeSeleccionado = acorde },
-                                        label = { Text(acorde, fontWeight = FontWeight.Bold) }
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-                }
-
-                // Sección: Acciones
-                Text(
-                    text = "Acciones",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { 
-                        mostrarAjustes = false
-                        onNavegarAEditar(cancionId) 
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large
-                ) {
-                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Editar Canción")
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedButton(
-                    onClick = { 
-                        mostrarAjustes = false
-                        mostrarDialogoEliminar = true 
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    shape = MaterialTheme.shapes.large,
-                    border = ButtonDefaults.outlinedButtonBorder.copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.error)
-                    )
-                ) {
-                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Eliminar Canción")
-                }
-            }
-        }
-    }
-
-    if (mostrarDialogoEliminar && cancionActual != null) {
+    if (mostrarConfirmarEliminar) {
         AlertDialog(
-            onDismissRequest = { mostrarDialogoEliminar = false },
-            title = { Text("Confirmar Eliminación") },
-            text = { Text("¿Estás seguro de que quieres eliminar permanentemente '${cancionActual.titulo}'?") },
+            onDismissRequest = { mostrarConfirmarEliminar = false },
+            title = { Text("¿Eliminar canción?") },
+            text = { Text("Esta acción no se puede deshacer.") },
             confirmButton = {
-                Button(
-                    onClick = {
-                        scope.launch {
-                            viewModel.eliminarCancion(cancionActual)
-                            onNavegarAtras()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Eliminar") }
+                Button(onClick = { scope.launch { cancionActual?.let { viewModel.eliminarCancion(it) }; onNavegarAtras() } }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Eliminar", color = Color.White) }
             },
-            dismissButton = { TextButton(onClick = { mostrarDialogoEliminar = false }) { Text("Cancelar") } }
-        )
-    }
-
-    if (acordeSeleccionado != null) {
-        ChordDiagramDialog(
-            chordName = acordeSeleccionado!!,
-            onDismiss = { acordeSeleccionado = null }
+            dismissButton = { TextButton(onClick = { mostrarConfirmarEliminar = false }) { Text("Cancelar") } }
         )
     }
 
@@ -409,161 +105,124 @@ fun PantallaVerCancion(
         topBar = {
             TopAppBar(
                 title = { 
-                    Text(
-                        text = cancionActual?.titulo ?: "Cargando...", 
-                        maxLines = 1,
-                        color = titleColor
-                    ) 
+                    Column {
+                        Text(cancionActual?.titulo ?: "", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text(cancionActual?.autor ?: "", color = CianBrillante, style = MaterialTheme.typography.bodySmall)
+                    }
                 },
-                navigationIcon = { 
-                    IconButton(onClick = onNavegarAtras) { 
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Regresar", tint = iconColor) 
-                    } 
+                navigationIcon = {
+                    IconButton(onClick = onNavegarAtras) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = Color.White) }
                 },
                 actions = {
-                    // Botón Metrónomo (SOLO PARA GUITARRISTAS)
-                    if (!isCantante) {
-                        IconButton(onClick = { isMetronomeVisible = !isMetronomeVisible }) {
-                            Icon(Icons.Default.Timer, contentDescription = "Metrónomo", tint = iconColor)
+                    if (cancionActual?.tieneAcordes == true && !isCantante) {
+                        IconButton(onClick = { mostrarRielDiagramas = !mostrarRielDiagramas }) {
+                            Icon(Icons.Default.MenuBook, "Diagramas", tint = if(mostrarRielDiagramas) AcordeAmarillo else Color.White)
                         }
                     }
-                    IconButton(onClick = { mostrarAjustes = true }) {
-                        Icon(Icons.Default.Tune, contentDescription = "Ajustes de Lectura", tint = iconColor)
-                    }
+                    IconButton(onClick = { onNavegarAEditar(cancionId) }) { Icon(Icons.Default.Edit, "Editar", tint = Color.White) }
+                    IconButton(onClick = { mostrarConfirmarEliminar = true }) { Icon(Icons.Default.Delete, "Eliminar", tint = Color.White.copy(alpha = 0.5f)) }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = backgroundColor,
-                    titleContentColor = titleColor,
-                    actionIconContentColor = iconColor,
-                    navigationIconContentColor = iconColor
-                )
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = if(altoContraste) Color.Black else AzulProfundo)
             )
-        },
-        containerColor = backgroundColor
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            if (cancionActual != null) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(scrollState)
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        // RITMO (SOLO PARA GUITARRISTAS)
-                        if (!isCantante) {
-                            Text(
-                                text = cancionActual.ritmo ?: "",
-                                style = MaterialTheme.typography.titleMedium, 
-                                fontWeight = FontWeight.Light,
-                                color = textColor
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(16.dp))
-                    }
+        }
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding).background(backgroundBrush)) {
+            Column(
+                modifier = Modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp)
+            ) {
+                AnimatedVisibility(visible = mostrarRielDiagramas && cancionActual?.tieneAcordes == true) {
+                    val acordesUnicos = remember(cancionActual, semitonos) {
+                        val texto = cancionActual?.letraOriginal ?: ""
+                        val listaAcordes = mutableListOf<String>()
+                        
+                        // Regex mejorado para capturar [Acorde] o [Etiqueta]{Acordes}
+                        val regexEspecial = Regex("\\[(.*?)\\](?:\\s*\\{(.*?)\\})?")
+                        regexEspecial.findAll(texto).forEach { match ->
+                            val contentCorchetes = match.groupValues[1]
+                            val contentLlaves = match.groupValues[2]
 
-                    lineasDeCancion.forEach { (lineaDeAcordes, lineaDeLetra) ->
-                        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                            if (lineaDeAcordes.isNotBlank()) {
-                                Text(
-                                    text = lineaDeAcordes,
-                                    color = chordColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 14.sp,
-                                    lineHeight = 16.sp
-                                )
+                            if (contentLlaves.isNotBlank()) {
+                                // Es [INTRO]{F G}, extraemos de las llaves
+                                contentLlaves.split(Regex("\\s+")).filter { it.isNotBlank() }.forEach {
+                                    listaAcordes.add(TonalidadUtil.transponerAcorde(it, semitonos))
+                                }
+                            } else {
+                                // Es [F] normal, verificamos si no es una etiqueta sola
+                                if (!TonalidadUtil.esEtiquetaInstrumental(contentCorchetes)) {
+                                    listaAcordes.add(TonalidadUtil.transponerAcorde(contentCorchetes, semitonos))
+                                }
                             }
-                            Text(
-                                text = lineaDeLetra,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 14.sp,
-                                lineHeight = 22.sp,
-                                color = textColor
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
                         }
+                        listaAcordes.distinct()
                     }
-                    Spacer(modifier = Modifier.height(300.dp))
-                }
-            } else {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            }
-            
-            // Barra Flotante del Metrónomo (SOLO PARA GUITARRISTAS)
-            if (!isCantante) {
-                AnimatedVisibility(
-                    visible = isMetronomeVisible,
-                    enter = slideInVertically { it },
-                    exit = slideOutVertically { it },
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = metronomeSurfaceColor,
-                        shadowElevation = 8.dp
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            IconButton(onClick = {
-                                if (isMetronomePlaying) {
-                                    metronomeController.stop()
-                                    isMetronomePlaying = false
-                                } else {
-                                    metronomeController.start(scope)
-                                    isMetronomePlaying = true
+                        items(acordesUnicos) { acorde ->
+                            Card(colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.width(100.dp)) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(8.dp)) {
+                                    Text(acorde, fontWeight = FontWeight.Bold, color = Color.Black)
+                                    val fingering = ChordDictionary.getFingering(acorde)
+                                    if (fingering != null) Box(modifier = Modifier.size(70.dp)) { ChordDiagram(fingering = fingering) }
                                 }
-                            }) {
-                                Icon(
-                                    imageVector = if (isMetronomePlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (isMetronomePlaying) "Detener" else "Iniciar",
-                                    tint = metronomeContentColor
-                                )
                             }
+                        }
+                    }
+                }
 
+                val lineas = if (cancionActual != null) {
+                    SongTextFormatter.formatSongTextForDisplay(cancionActual!!.letraOriginal, semitonos, mostrarAcordes)
+                } else emptyList()
+
+                lineas.forEach { (acordes, letra) ->
+                    if (acordes.isNotBlank() && mostrarAcordes) {
+                        Text(text = acordes, color = if(altoContraste) Color.Yellow else AcordeAmarillo, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(top = 8.dp))
+                    }
+                    Text(text = letra, color = Color.White, fontSize = 18.sp, modifier = Modifier.padding(bottom = 4.dp))
+                }
+                Spacer(modifier = Modifier.height(180.dp))
+            }
+
+            Column(modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)) {
+                AnimatedVisibility(visible = isMetronomeRunning) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).background(Color.Black.copy(alpha = 0.9f), RoundedCornerShape(16.dp)).padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("BPM: $bpm", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.width(70.dp))
+                        Slider(value = bpm.toFloat(), onValueChange = { bpm = it.toInt(); metronome.setBpm(bpm) }, valueRange = 40f..240f, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { isMetronomeRunning = false; metronome.stop() }) { Icon(Icons.Default.Close, null, tint = Color.White) }
+                    }
+                }
+
+                Box(
+                    modifier = Modifier.background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(24.dp))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(24.dp)).padding(8.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (cancionActual?.tieneAcordes == true && !isCantante) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(onClick = {
-                                    metronomeBpm = (metronomeBpm - 5).coerceAtLeast(30)
-                                    metronomeController.setBpm(metronomeBpm)
-                                }) {
-                                    Icon(Icons.Default.Remove, "Disminuir BPM", tint = metronomeContentColor)
-                                }
-                                
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(text = "$metronomeBpm", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, color = metronomeContentColor)
-                                    Text(text = "BPM", style = MaterialTheme.typography.labelSmall, color = metronomeContentColor.copy(alpha = 0.7f))
-                                }
+                                IconButton(onClick = { semitonos-- }) { Icon(Icons.Default.Remove, null, tint = Color.White) }
+                                val tonoVisual = TonalidadUtil.transponerAcorde(cancionActual?.tonoOriginal ?: "C", semitonos)
+                                Text(tonoVisual, color = if(semitonos == 0) AcordeAmarillo else CianBrillante, fontWeight = FontWeight.Black)
+                                IconButton(onClick = { semitonos++ }) { Icon(Icons.Default.Add, null, tint = Color.White) }
+                            }
+                            VerticalDivider(modifier = Modifier.height(30.dp), color = Color.White.copy(alpha = 0.2f))
+                        }
+                        
+                        IconButton(onClick = { isAutoScrolling = !isAutoScrolling }, modifier = Modifier.background(if(isAutoScrolling) CianBrillante else Color.Transparent, RoundedCornerShape(12.dp))) {
+                            Icon(if(isAutoScrolling) Icons.Default.Pause else Icons.Default.PlayArrow, null, tint = if(isAutoScrolling) AzulProfundo else Color.White)
+                        }
 
-                                IconButton(onClick = {
-                                    metronomeBpm = (metronomeBpm + 5).coerceAtMost(300)
-                                    metronomeController.setBpm(metronomeBpm)
-                                }) {
-                                    Icon(Icons.Default.Add, "Aumentar BPM", tint = metronomeContentColor)
-                                }
-                            }
-                            
-                            Box(modifier = Modifier.size(12.dp).background(color = if (beatIndicator) Color.Red else Color.Gray, shape = MaterialTheme.shapes.small))
-                            
-                            IconButton(onClick = {
-                                metronomeController.stop()
-                                isMetronomePlaying = false
-                                isMetronomeVisible = false
-                            }) {
-                                Icon(Icons.Default.Close, "Cerrar Metrónomo", tint = metronomeContentColor)
-                            }
+                        IconButton(onClick = { isMetronomeRunning = !isMetronomeRunning; if(isMetronomeRunning) metronome.start(scope) else metronome.stop() }) {
+                            Icon(Icons.Default.Timer, null, tint = if(isMetronomeRunning) AcordeAmarillo else Color.White)
+                        }
+
+                        VerticalDivider(modifier = Modifier.height(30.dp), color = Color.White.copy(alpha = 0.2f))
+
+                        IconButton(onClick = { altoContraste = !altoContraste }) {
+                            Icon(if(altoContraste) Icons.Default.LightMode else Icons.Default.DarkMode, null, tint = if(altoContraste) AcordeAmarillo else Color.White)
                         }
                     }
                 }

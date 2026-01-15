@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -207,13 +206,27 @@ fun PantallaEditarCancion(
 
     fun insertarModoInstrumental(modo: String) {
         val currentText = letraValue.text
+        
+        // 1. Evitar duplicados para INTRO, FINAL, CIRCULO
+        if (modo in listOf("INTRO", "FINAL", "CIRCULO") && currentText.contains("[$modo]")) {
+            Toast.makeText(context, "Ya existe un $modo en esta canción", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val selection = letraValue.selection
+        val textBefore = currentText.substring(0, selection.start)
+        val textAfter = currentText.substring(selection.start)
+
+        // 2. Formateo: Salto de línea si hay texto después
         val prefix = if (selection.start > 0 && currentText[selection.start - 1] != '\n') "\n" else ""
         val middle = "[$modo]{ "
         val suffix = " }"
-        val fullInsert = "$prefix$middle$suffix"
-        val newText = StringBuilder(currentText).insert(selection.start, fullInsert).toString()
+        val lineBreakSuffix = if (textAfter.isNotEmpty() && !textAfter.startsWith("\n")) "\n" else ""
+        
+        val fullInsert = "$prefix$middle$suffix$lineBreakSuffix"
+        val newText = textBefore + fullInsert + textAfter
         val newCursorPos = selection.start + prefix.length + middle.length
+        
         letraValue = TextFieldValue(text = newText, selection = TextRange(newCursorPos))
         showModesBar = false
         showNotesBar = true 
@@ -285,8 +298,42 @@ fun PantallaEditarCancion(
         if (isGranted) currentAction() else Toast.makeText(context, "Permiso denegado", Toast.LENGTH_SHORT).show()
     }
 
-    fun checkAndExecuteAction(action: () -> Unit) {
-        if (sharedPreferences.getBoolean(KEY_SHOW_SCAN_WARNING, true)) { currentAction = action; showScanWarningDialog = true } else action()
+    // --- DIÁLOGOS DE CONTROL ---
+    if (showScanWarningDialog) {
+        AlertDialog(
+            onDismissRequest = { showScanWarningDialog = false },
+            title = { Text("Consejo de Escaneo") },
+            text = { Text("Para mejores resultados, asegúrate de que la foto tenga buena luz y que la letra esté bien alineada.") },
+            confirmButton = {
+                Button(onClick = { 
+                    showScanWarningDialog = false
+                    sharedPreferences.edit().putBoolean(KEY_SHOW_SCAN_WARNING, false).apply()
+                    currentAction() 
+                }) { Text("Entendido") }
+            }
+        )
+    }
+
+    if (showOverwriteDialog) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteDialog = false },
+            title = { Text("Contenido detectado") },
+            text = { Text("¿Deseas reemplazar el texto actual con el escaneo o añadirlo al final?") },
+            confirmButton = {
+                Button(onClick = { 
+                    shouldAppendScannedText = true
+                    showOverwriteDialog = false
+                    currentAction() 
+                }) { Text("Añadir al final") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    shouldAppendScannedText = false
+                    showOverwriteDialog = false
+                    currentAction() 
+                }) { Text("Reemplazar todo") }
+            }
+        )
     }
 
     Scaffold(
@@ -369,16 +416,31 @@ fun PantallaEditarCancion(
                                     }
                                     Spacer(modifier = Modifier.width(16.dp))
                                     IconButton(onClick = {
-                                        val act = { pickImageLauncher.launch("image/*") }
-                                        if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
+                                        val action = { pickImageLauncher.launch("image/*") }
+                                        if (letraValue.text.isNotBlank()) {
+                                            currentAction = action
+                                            showOverwriteDialog = true
+                                        } else {
+                                            shouldAppendScannedText = false
+                                            action()
+                                        }
                                     }) { Icon(Icons.Default.CropOriginal, "Galería", tint = MaterialTheme.colorScheme.primary) }
                                     Spacer(modifier = Modifier.width(16.dp))
                                     IconButton(onClick = {
-                                        val act = {
+                                        val action = {
                                             if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCamera()
-                                            else { currentAction = { launchCamera() }; requestPermissionLauncher.launch(Manifest.permission.CAMERA) }
+                                            else {
+                                                currentAction = { launchCamera() }
+                                                requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                            }
                                         }
-                                        if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
+                                        if (letraValue.text.isNotBlank()) {
+                                            currentAction = action
+                                            showOverwriteDialog = true
+                                        } else {
+                                            shouldAppendScannedText = false
+                                            action()
+                                        }
                                     }) { Icon(Icons.Default.PhotoCamera, "Cámara", tint = MaterialTheme.colorScheme.primary) }
                                     Spacer(modifier = Modifier.width(16.dp))
                                     IconButton(onClick = { showModesBar = !showModesBar; if (showModesBar) showNotesBar = false }) {

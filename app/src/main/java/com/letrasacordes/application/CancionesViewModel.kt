@@ -37,7 +37,7 @@ class CancionesViewModel(
     private val _categoriaSeleccionada = MutableStateFlow<String?>(null)
     val categoriaSeleccionada = _categoriaSeleccionada.asStateFlow()
 
-    private val _categorias = MutableStateFlow<Map<String, Set<Int>>>(emptyMap())
+    private val _categorias = MutableStateFlow<Map<String, List<Int>>>(emptyMap())
     val categorias = _categorias.asStateFlow()
 
     private val _cancionId = MutableStateFlow<Int?>(null)
@@ -57,6 +57,10 @@ class CancionesViewModel(
     val todasLasCanciones: StateFlow<List<Cancion>> = dao.obtenerTodasLasCanciones()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Flow principal para la pantalla de inicio.
+     * Siempre devuelve las canciones ordenadas alfabéticamente por el DAO.
+     */
     val canciones: StateFlow<List<Cancion>> = combine(
         textoBusqueda.debounce(300L),
         _categoriaSeleccionada
@@ -65,8 +69,8 @@ class CancionesViewModel(
 
         when {
             idsCancionesCategoria != null -> {
-                if (query.isBlank()) dao.obtenerCancionesPorIds(idsCancionesCategoria)
-                else dao.buscarCancionesPorIds(idsCancionesCategoria, query)
+                if (query.isBlank()) dao.obtenerCancionesPorIds(idsCancionesCategoria.toSet())
+                else dao.buscarCancionesPorIds(idsCancionesCategoria.toSet(), query)
             }
             query.isNotBlank() -> dao.buscarCanciones(query)
             else -> dao.obtenerTodasLasCanciones()
@@ -74,6 +78,19 @@ class CancionesViewModel(
     }.flatMapLatest { it }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    /**
+     * Obtiene las canciones de una categoría preservando el orden manual.
+     * Útil para el Modo Presentación.
+     */
+    fun obtenerCancionesDeCategoriaOrdenadas(nombreCategoria: String): Flow<List<Cancion>> {
+        val ids = categoryRepository.getSongIdsForCategory(nombreCategoria)
+        if (ids.isEmpty()) return flowOf(emptyList())
+        
+        return dao.obtenerCancionesPorIds(ids.toSet()).map { lista ->
+            val mapa = lista.associateBy { it.id }
+            ids.mapNotNull { mapa[it] }
+        }
+    }
 
     fun enTextoBusquedaCambiado(nuevoTexto: String) {
         _textoBusqueda.value = nuevoTexto
@@ -87,7 +104,7 @@ class CancionesViewModel(
         _categorias.value = categoryRepository.getAllCategories()
     }
 
-    fun guardarCategoria(nombre: String, idsCanciones: Set<Int>) {
+    fun guardarCategoria(nombre: String, idsCanciones: List<Int>) {
         categoryRepository.saveCategory(nombre, idsCanciones)
         refrescarCategorias()
     }
@@ -100,7 +117,7 @@ class CancionesViewModel(
         refrescarCategorias()
     }
 
-    fun actualizarCategoria(nombreOriginal: String, nombreNuevo: String, idsCanciones: Set<Int>) {
+    fun actualizarCategoria(nombreOriginal: String, nombreNuevo: String, idsCanciones: List<Int>) {
         if (nombreOriginal != nombreNuevo) {
             categoryRepository.deleteCategory(nombreOriginal)
         }
@@ -133,7 +150,6 @@ class CancionesViewModel(
         val timestamp = System.currentTimeMillis()
         val letraLimpia = letra.replace(Regex("(\\[.*?\\]|\\{.*?\\})"), "")
         
-        // Solo buscamos tono si realmente el usuario marcó que tiene acordes
         val primerAcorde = if (tieneAcordes) TonalidadUtil.obtenerPrimerAcorde(letra) else null
         
         val nuevaCancion = Cancion(
@@ -142,7 +158,6 @@ class CancionesViewModel(
             ritmo = ritmo?.trim().takeIf { !it.isNullOrBlank() },
             letraOriginal = letra,
             tieneAcordes = tieneAcordes,
-            // Si tiene acordes pero no detectamos el primero, ponemos "C", si no, queda NULL
             tonoOriginal = if (tieneAcordes) (primerAcorde ?: "C") else null,
             letraSinAcordes = letraLimpia,
             fechaCreacion = timestamp,
@@ -153,15 +168,12 @@ class CancionesViewModel(
 
     suspend fun actualizarCancion(cancion: Cancion) {
         val letraLimpia = cancion.letraOriginal.replace(Regex("(\\[.*?\\]|\\{.*?\\})"), "")
-        
-        // Recalculamos si tiene acordes basándonos en el contenido actual
         val tieneAcordesActual = cancion.letraOriginal.contains("[") && cancion.letraOriginal.contains("]")
         val primerAcorde = if (tieneAcordesActual) TonalidadUtil.obtenerPrimerAcorde(cancion.letraOriginal) else null
         
         val cancionActualizada = cancion.copy(
             letraSinAcordes = letraLimpia,
             tieneAcordes = tieneAcordesActual,
-            // Solo asignamos tono si realmente hay acordes
             tonoOriginal = if (tieneAcordesActual) (primerAcorde ?: "C") else null,
             ultimaEdicion = System.currentTimeMillis()
         )

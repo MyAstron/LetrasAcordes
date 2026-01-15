@@ -18,10 +18,14 @@ object Rutas {
     const val CONFIGURACION = "configuracion"
     const val VER_CANCION = "ver_cancion/{cancionId}"
     const val EDITAR_CANCION = "editarCancion/{cancionId}"
+    const val MODO_PRESENTACION = "modo_presentacion/{categoria}"
+    const val VER_CANCION_PRESENTACION = "ver_cancion_presentacion/{cancionId}/{categoria}"
 
     // Función auxiliar para construir la ruta completa con el ID
     fun verCancionConId(id: Int) = "ver_cancion/$id"
     fun editarCancionConId(id: Int) = "editarCancion/$id"
+    fun modoPresentacionConCategoria(categoria: String) = "modo_presentacion/$categoria"
+    fun verCancionPresentacion(id: Int, categoria: String) = "ver_cancion_presentacion/$id/$categoria"
 }
 
 @Composable
@@ -105,7 +109,45 @@ fun NavegacionApp(inicioRealizado: Boolean = false) {
 
         composable(Rutas.CONFIGURACION) {
             PantallaConfiguracion(
-                onNavegarAtras = { navController.popBackStack() }
+                onNavegarAtras = { navController.popBackStack() },
+                onIniciarPresentacion = { categoria ->
+                    navController.navigate(Rutas.modoPresentacionConCategoria(categoria))
+                }
+            )
+        }
+
+        composable(
+            route = Rutas.MODO_PRESENTACION,
+            arguments = listOf(navArgument("categoria") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val categoria = backStackEntry.arguments?.getString("categoria") ?: "Todas"
+            PantallaModoPresentacion(
+                categoria = categoria,
+                onSalir = { navController.popBackStack() },
+                onCancionClick = { id ->
+                    navController.navigate(Rutas.verCancionPresentacion(id, categoria))
+                }
+            )
+        }
+
+        composable(
+            route = Rutas.VER_CANCION_PRESENTACION,
+            arguments = listOf(
+                navArgument("cancionId") { type = NavType.IntType },
+                navArgument("categoria") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val cancionId = backStackEntry.arguments?.getInt("cancionId") ?: 0
+            val categoria = backStackEntry.arguments?.getString("categoria") ?: "Todas"
+            PantallaVerCancionPresentacion(
+                cancionId = cancionId,
+                categoria = categoria,
+                onRegresar = { navController.popBackStack() },
+                onSiguienteCancion = { nuevaId ->
+                    navController.navigate(Rutas.verCancionPresentacion(nuevaId, categoria)) {
+                        popUpTo(Rutas.VER_CANCION_PRESENTACION) { inclusive = true }
+                    }
+                }
             )
         }
     }

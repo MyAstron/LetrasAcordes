@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -37,13 +36,12 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.letrasacordes.application.logic.ChordDetectorController
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
 import com.google.mlkit.vision.text.Text as VisionText
 
-// Lógica de normalización y detección (se mantiene igual)
+// Lógica de normalización y detección
 private const val CHORD_PATTERN = """^((Do|Re|Mi|Fa|Sol|La|Si|[A-G]|B7)(#|b)?(m|maj|dim|aug|sus|add|M|7|9|11|13|6|5|4|2|b5|#9|#5|b9|sus4|sus2|-|-|–|—|/)?(?:[0-9b#])*(?:/[A-G](?:#|b)?)?)$"""
 private val CHORD_REGEX = Regex(CHORD_PATTERN, RegexOption.IGNORE_CASE)
 private val CHORD_CLEANUP_REGEX = Regex("(#|b)\\s+[-–—]")
@@ -191,29 +189,14 @@ fun PantallaAgregarCancion(
     
     val scope = rememberCoroutineScope()
 
-    val rhythmOptions = listOf("Balada", "Rock", "Pop", "Bolero", "Cumbia", "Salsa", "Arpegio", "Vals")
-
     // Lógica inteligente de inserción
     fun insertarAcorde(acorde: String) {
         val currentText = letraValue.text
         val selection = letraValue.selection
-        
-        // Comprobamos si el cursor está dentro de un bloque instrumental: [...] { ... | ... }
         val textBefore = currentText.substring(0, selection.start)
         val textAfter = currentText.substring(selection.start)
-        
-        val insideInstrumental = textBefore.contains(Regex("\\[.*?\\]\\s*\\{")) && 
-                                 !textBefore.substringAfterLast("{").contains("}") &&
-                                 textAfter.contains("}")
-        
-        val textoAInsertar = if (insideInstrumental) {
-            // Si estamos dentro de llaves, insertamos solo el acorde con un espacio opcional
-            if (textBefore.endsWith(" ") || textBefore.endsWith("{")) "$acorde " else " $acorde "
-        } else {
-            // Si no, usamos la sintaxis estándar de corchetes
-            "[$acorde]"
-        }
-        
+        val insideInstrumental = textBefore.contains(Regex("\\[.*?\\]\\s*\\{")) && !textBefore.substringAfterLast("{").contains("}") && textAfter.contains("}")
+        val textoAInsertar = if (insideInstrumental) { if (textBefore.endsWith(" ") || textBefore.endsWith("{")) "$acorde " else " $acorde " } else { "[$acorde]" }
         val newText = StringBuilder(currentText).insert(selection.start, textoAInsertar).toString()
         letraValue = TextFieldValue(text = newText, selection = TextRange(selection.start + textoAInsertar.length))
         selectedRootNote = null
@@ -221,13 +204,27 @@ fun PantallaAgregarCancion(
 
     fun insertarModoInstrumental(modo: String) {
         val currentText = letraValue.text
+        
+        // 1. Evitar duplicados para INTRO, FINAL, CIRCULO
+        if (modo in listOf("INTRO", "FINAL", "CIRCULO") && currentText.contains("[$modo]")) {
+            Toast.makeText(context, "Ya existe un $modo en esta canción", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         val selection = letraValue.selection
+        val textBefore = currentText.substring(0, selection.start)
+        val textAfter = currentText.substring(selection.start)
+
+        // 2. Formateo: Salto de línea si hay texto después
         val prefix = if (selection.start > 0 && currentText[selection.start - 1] != '\n') "\n" else ""
         val middle = "[$modo]{ "
         val suffix = " }"
-        val fullInsert = "$prefix$middle$suffix"
-        val newText = StringBuilder(currentText).insert(selection.start, fullInsert).toString()
+        val lineBreakSuffix = if (textAfter.isNotEmpty() && !textAfter.startsWith("\n")) "\n" else ""
+        
+        val fullInsert = "$prefix$middle$suffix$lineBreakSuffix"
+        val newText = textBefore + fullInsert + textAfter
         val newCursorPos = selection.start + prefix.length + middle.length
+        
         letraValue = TextFieldValue(text = newText, selection = TextRange(newCursorPos))
         showModesBar = false
         showNotesBar = true 
@@ -309,8 +306,42 @@ fun PantallaAgregarCancion(
         if (isGranted) currentAction() else Toast.makeText(context, "Permiso denegado", Toast.LENGTH_SHORT).show()
     }
 
-    fun checkAndExecuteAction(action: () -> Unit) {
-        if (sharedPreferences.getBoolean(KEY_SHOW_SCAN_WARNING, true)) { currentAction = action; showScanWarningDialog = true } else action()
+    // --- DIÁLOGOS DE CONTROL ---
+    if (showScanWarningDialog) {
+        AlertDialog(
+            onDismissRequest = { showScanWarningDialog = false },
+            title = { Text("Consejo de Escaneo") },
+            text = { Text("Para mejores resultados, asegúrate de que la foto tenga buena luz y que la letra esté bien alineada.") },
+            confirmButton = {
+                Button(onClick = { 
+                    showScanWarningDialog = false
+                    sharedPreferences.edit().putBoolean(KEY_SHOW_SCAN_WARNING, false).apply()
+                    currentAction() 
+                }) { Text("Entendido") }
+            }
+        )
+    }
+
+    if (showOverwriteDialog) {
+        AlertDialog(
+            onDismissRequest = { showOverwriteDialog = false },
+            title = { Text("Contenido detectado") },
+            text = { Text("Ya tienes letra escrita. ¿Deseas reemplazarla por el nuevo escaneo o añadirlo al final?") },
+            confirmButton = {
+                Button(onClick = { 
+                    shouldAppendScannedText = true
+                    showOverwriteDialog = false
+                    currentAction() 
+                }) { Text("Añadir al final") }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    shouldAppendScannedText = false
+                    showOverwriteDialog = false
+                    currentAction() 
+                }) { Text("Reemplazar todo") }
+            }
+        )
     }
 
     Scaffold(
@@ -391,35 +422,37 @@ fun PantallaAgregarCancion(
                                 }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 IconButton(onClick = {
-                                    val act = { pickImageLauncher.launch("image/*") }
-                                    if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
+                                    val action = { pickImageLauncher.launch("image/*") }
+                                    if (letraValue.text.isNotBlank()) {
+                                        currentAction = action
+                                        showOverwriteDialog = true
+                                    } else {
+                                        shouldAppendScannedText = false
+                                        action()
+                                    }
                                 }) { Icon(Icons.Default.CropOriginal, "Galería", tint = MaterialTheme.colorScheme.primary) }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 IconButton(onClick = {
-                                    val act = {
+                                    val action = {
                                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCamera()
-                                        else { currentAction = { launchCamera() }; requestPermissionLauncher.launch(Manifest.permission.CAMERA) }
+                                        else {
+                                            currentAction = { launchCamera() }
+                                            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                        }
                                     }
-                                    if (letraValue.text.isNotBlank()) { currentAction = act; showOverwriteDialog = true } else act()
+                                    if (letraValue.text.isNotBlank()) {
+                                        currentAction = action
+                                        showOverwriteDialog = true
+                                    } else {
+                                        shouldAppendScannedText = false
+                                        action()
+                                    }
                                 }) { Icon(Icons.Default.PhotoCamera, "Cámara", tint = MaterialTheme.colorScheme.primary) }
                                 Spacer(modifier = Modifier.width(16.dp))
                                 IconButton(onClick = { showModesBar = !showModesBar; if (showModesBar) showNotesBar = false }) {
                                     Icon(Icons.Default.Add, "Modos", tint = if (showModesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                                 }
                             }
-                        }
-                    }
-                }
-            }
-
-            // Overlay Pruebas
-            if (isDetectingChords) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)).clickable { isDetectingChords = false }, contentAlignment = Alignment.Center) {
-                    Card(modifier = Modifier.size(200.dp)) {
-                        Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Text("Analizando Polifonía:", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(currentDetectedChordLabel, style = MaterialTheme.typography.displayLarge, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

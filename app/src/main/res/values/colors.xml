@@ -7,4 +7,9 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- Colores para el Widget -->
+    <color name="widget_cinta_amarilla">#FFF176</color>
+    <color name="widget_texto_marcador">#000000</color>
+    <color name="widget_fondo">#FFFFFF</color>
 </resources>
