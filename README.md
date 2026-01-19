@@ -1,4 +1,4 @@
-# 🎸 Melodias: Letras y Acordes (v4.2.3)
+# 🎸 Melodias: Letras y Acordes (v5.1.0)
 **Más que un visor de acordes: Una estación de trabajo inteligente para la interpretación en vivo.**
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-Native-7F52FF?style=for-the-badge&logo=kotlin)](https://kotlinlang.org/)
@@ -11,33 +11,33 @@
 
 ## 🏛️ Arquitectura del Sistema (Conceptos de Ingeniería)
 
-### 1. El Salón de Repertorio (Gestión de Datos)
-Funciona como el **Single Source of Truth** visual, una biblioteca infinita donde un `LazyColumn` reactivo observa un `StateFlow` del repositorio de Room. Es un sistema tan eficiente que el "bibliotecario digital" encuentra cualquier obra mediante operadores funcionales de filtrado antes de que termines de escribir el título, permitiendo organizar estantes temáticos (categorías) que puedes mover o clavar en la pared de tu colección a tu antojo para que crezca sin perder jamás el orden.
+### 1. El Salón de Repertorio (Gestión de Datos y Galería Visual)
+Funciona como el **Single Source of Truth** visual, evolucionando de un catálogo de texto a una **Galería Visual Dinámica**. Un `LazyColumn` reactivo observa un `StateFlow` del repositorio de Room, ahora enriquecido con portadas automáticas vía **iTunes API**. El sistema realiza búsquedas silenciosas para asignar el arte original de cada obra, mientras un motor de procesamiento eficiente redimensiona cargas manuales a **250x250px**, optimizando RAM y almacenamiento sin sacrificar la estética.
 
 ### 2. El Taller de Luthería (Configuración y Perfiles)
-Este es el **Backstage** técnico de la aplicación, encargado de gestionar el estado global y las preferencias mediante `SharedPreferences`. Aquí es donde el músico elige su "traje": mediante lógica condicional, la app muta su interfaz para entregarte afinadores y diagramas si eres Guitarrista, o guarda las herramientas pesadas si decides ser Cantante. Es el lugar donde se transforman los datos en flujos de bytes GZIP para asegurar que tu diario musical tenga una portabilidad total y nunca se pierda en el tiempo.
+Este es el **Backstage** técnico de la aplicación. Aquí, el músico elige su "traje": la interfaz muta para entregar afinadores cromáticos y diagramas si eres Guitarrista, o simplifica las herramientas si eres Cantante. Implementa un sistema de importación/exportación GZIP que ahora es más inteligente: los respaldos `.la` se mantienen ligeros al omitir datos temporales de internet, asegurando una portabilidad total y limpia.
 
 ### 3. El Estudio de Ensayo (Renderizado Dinámico)
-Actúa como un atril inteligente impulsado por un `SongTextFormatter` que utiliza expresiones regulares (**Regex**) para separar la letra de la armonía. Esta pantalla no solo sostiene la partitura; puede cambiar la tonalidad de toda la obra con un chasquido de dedos mediante su motor de transposición en tiempo real, mientras un asistente de **Auto-scroll** mueve la hoja por ti y un metrónomo vinculado al ciclo de vida del `DisposableEffect` marca el pulso invisible de tu práctica para que nunca dejes de tocar.
+Actúa como un atril inteligente impulsado por un `SongTextFormatter` que utiliza **Regex** para separar la armonía de la lírica. Este atril digital permite transposición en tiempo real, **Auto-scroll** de precisión y un metrónomo vinculado al ciclo de vida del componente, asegurando que el ritmo nunca se pierda, independientemente de la complejidad de la obra.
 
-### 4. La Mesa de Composición (Input y Persistencia)
-Es el escritorio del compositor, un espacio en blanco donde se digitaliza la inspiración validando la integridad de cada entrada. El sistema analiza el texto crudo para generar metadatos automáticos —como la detección del tono original— y transforma una idea volátil en una entidad de `Cancion` estructurada y persistida en **SQLite**, marcando versos, puentes y estribillos para que el sistema aprenda a leer y entender tu propia música.
+### 4. La Mesa de Composición (Validación Armónica)
+Es el escritorio del compositor, reforzado con **Ingeniería de Integridad**. El editor valida en tiempo real la estructura de la obra, impidiendo el anidamiento erróneo de bloques instrumentales y garantizando la unicidad de secciones críticas como `INTRO`, `FINAL` o `CÍRCULO`. Transforma ideas volátiles en entidades estructuradas y persistidas en SQLite con metadatos de tonalidad y ritmo detectados automáticamente.
 
 ### 5. La Organización del Show (Setlist Management)
-Diseñada para modelar la montaña rusa de emociones de un concierto, esta sección implementa un algoritmo de intercambio de posición $O(n)$ que permite un reordenamiento manual mediante gestos de **Drag & Drop**. Imagina mover fotos sobre una mesa con total libertad; el sistema utiliza una lista mutable efímera para garantizar fluidez visual y realiza una persistencia atómica por lotes (**Batch Update**) solo al finalizar, optimizando el rendimiento del dispositivo mientras diseñas tu setlist perfecto.
+Diseñada para modelar la energía de un concierto, esta sección permite una **Curaduría por Bloques**. Mediante un sistema de **Checkboxes**, el músico puede armar repertorios masivos en segundos. Implementa un algoritmo de intercambio $O(n)$ para reordenamiento mediante **Drag & Drop** y un filtro de colisiones que oculta automáticamente listas ya agregadas, optimizando el diseño del setlist perfecto.
 
-### 6. El Escenario (Modo Presentación)
-Es el foco directo bajo los reflectores: una variante de **Alto Contraste** optimizada para paneles OLED (Pure Black) que elimina cualquier ruido visual para dejarte solo con la música. Funciona como un visor nocturno que resalta los acordes en amarillo neón para garantizar la legibilidad en la oscuridad de un escenario, utilizando una navegación secuencial basada en índices para que la siguiente canción esté a un solo toque de distancia, permitiendo que el show nunca se detenga.
+### 6. El Escenario (Modo Presentación Blindado)
+Es el foco directo bajo los reflectores, optimizado para paneles OLED en **Alto Contraste**. El modo ahora está blindado para el directo: bloquea salidas accidentales mediante la captura del botón "Atrás" físico y utiliza **Listas Efímeras** (`LISTA_TEMPORAL_AUTO`) que se auto-limpian al finalizar el show. Un nuevo panel modal de **Info Rápida** permite visualizar metadatos y arte de la canción con un toque sobre el título, manteniendo el flujo sin interrupciones.
 
 
 ## ✨ Funciones Core
 * **OCR Inteligente:** Digitalización de partituras físicas mediante Google ML Kit.
 * **Afinador Cromático:** Procesamiento de audio en tiempo real para asistencia técnica.
-* **Exportación PDF:** Generación de cancioneros profesionales con modo compacto e índice automático.
+* **Motor de Impresión:** Generación de **PDF** profesionales que respetan escrupulosamente el orden manual del músico, incluyendo miniaturas e índice sincronizado.
 * **Wakelock:** Gestión de energía para mantener la pantalla activa durante toda la presentación.
 
 ---
 
-Pruebalo con **/debug.apk**<br>
+Pruebalo con **/app-debug.apk**<br>
 Desarrollado por **Cristopher (MyAstron)**.
 *© 2026 Click Doris / MyAstron*

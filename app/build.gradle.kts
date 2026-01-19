@@ -7,16 +7,14 @@ plugins {
 
 android {
     namespace = "com.letrasacordes.application"
-    compileSdk {
-        version = release(36)
-    }
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.letrasacordes.application"
         minSdk = 24
         targetSdk = 36
         versionCode = 2
-        versionName = "4.2.3"
+        versionName = "5.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -57,6 +55,14 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    
+    // Coil para cargar imágenes en Compose
+    implementation("io.coil-kt:coil-compose:2.7.0")
+    
+    // OkHttp y Gson para la búsqueda en iTunes
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.11.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -19,14 +19,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.letrasacordes.application.logic.SongTextFormatter
 import com.letrasacordes.application.logic.TonalidadUtil
 import com.letrasacordes.application.ui.theme.*
@@ -61,6 +68,7 @@ fun PantallaVerCancion(
     var altoContraste by remember { mutableStateOf(false) }
     var mostrarRielDiagramas by remember { mutableStateOf(false) }
     var mostrarConfirmarEliminar by remember { mutableStateOf(false) }
+    var mostrarInfoRapida by remember { mutableStateOf(false) }
     
     val metronome = remember { MetronomeController() }
     var isMetronomeRunning by remember { mutableStateOf(false) }
@@ -101,11 +109,67 @@ fun PantallaVerCancion(
         )
     }
 
+    // 4. DIÁLOGO DE INFO RÁPIDA
+    if (mostrarInfoRapida) {
+        Dialog(onDismissRequest = { mostrarInfoRapida = false }) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = AzulProfundo,
+                tonalElevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color.White.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (cancionActual?.coverUrl != null) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(cancionActual?.coverUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(60.dp), tint = CianBrillante)
+                        }
+                    }
+                    
+                    Text(
+                        text = cancionActual?.titulo ?: "",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+                    
+                    if (!cancionActual?.autor.isNullOrBlank()) {
+                        Text(
+                            text = cancionActual?.autor ?: "",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = CianBrillante,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { 
-                    Column {
+                    Column(modifier = Modifier.clickable { mostrarInfoRapida = true }) {
                         Text(cancionActual?.titulo ?: "", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text(cancionActual?.autor ?: "", color = CianBrillante, style = MaterialTheme.typography.bodySmall)
                     }
@@ -132,7 +196,7 @@ fun PantallaVerCancion(
             ) {
                 AnimatedVisibility(visible = mostrarRielDiagramas && cancionActual?.tieneAcordes == true) {
                     val acordesUnicos = remember(cancionActual, semitonos) {
-                        val texto = cancionActual?.letraOriginal ?: ""
+                        val texto = cancionActual?.let { it.letraOriginal } ?: ""
                         val listaAcordes = mutableListOf<String>()
                         
                         // Regex mejorado para capturar [Acorde] o [Etiqueta]{Acordes}

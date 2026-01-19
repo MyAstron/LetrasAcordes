@@ -58,16 +58,18 @@ class PdfGenerator(private val context: Context) {
         compactMode: Boolean,
         outputUri: Uri
     ) {
-        val sortedSongs = songs.sortedBy { it.titulo }
+        // RESPETAR EL ORDEN MANUAL: Ya no ordenamos alfabéticamente aquí.
+        // El ViewModel envía la lista 'songs' con el orden que el usuario definió en el diálogo.
+        val finalSongs = songs 
         pdfDocument = PdfDocument()
 
-        if (includeIndex && sortedSongs.size > 1) {
-            createIndexPage(sortedSongs)
+        if (includeIndex && finalSongs.size > 1) {
+            createIndexPage(finalSongs)
         }
 
         startNewPage()
         
-        sortedSongs.forEachIndexed { index, song ->
+        finalSongs.forEachIndexed { index, song ->
             if (!compactMode && index > 0) {
                 startNewPage()
             }

@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -33,16 +35,20 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.letrasacordes.application.database.Cancion
 import com.letrasacordes.application.ui.MicrophoneTunerController
 import com.letrasacordes.application.ui.TunerResult
@@ -70,7 +76,7 @@ fun PantallaConfiguracion(
 
     val todasLasCanciones by viewModel.todasLasCanciones.collectAsState()
     val categorias by viewModel.categorias.collectAsState()
-    val cancionesSeleccionadas = remember { mutableStateMapOf<Int, Boolean>() }
+    var cancionesAExportar by remember { mutableStateOf<List<Cancion>>(emptyList()) }
 
     // Afinador Controller
     val tunerController = remember { MicrophoneTunerController() }
@@ -106,7 +112,10 @@ fun PantallaConfiguracion(
             scope.launch {
                 try {
                     val bytes = context.contentResolver.openInputStream(safeUri)?.use { it.readBytes() }
-                    if (bytes != null) viewModel.importarCanciones(bytes)
+                    if (bytes != null) {
+                        val count = viewModel.importarCanciones(bytes)
+                        Toast.makeText(context, "$count canciones importadas", Toast.LENGTH_SHORT).show()
+                    }
                 } catch (e: Exception) { snackbarHostState.showSnackbar("Error al importar") }
             }
         }
@@ -116,7 +125,6 @@ fun PantallaConfiguracion(
         uri?.let { safeUri ->
             scope.launch {
                 try {
-                    val cancionesAExportar = todasLasCanciones.filter { cancionesSeleccionadas.getOrDefault(it.id, false) }
                     val bytes = viewModel.exportarCanciones(cancionesAExportar)
                     context.contentResolver.openOutputStream(safeUri)?.use { it.write(bytes) }
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -218,64 +226,250 @@ fun PantallaConfiguracion(
     }
 
     if (mostrarDialogoExportar) {
-        DialogoExportacionAvanzado(todasLasCanciones, categorias, cancionesSeleccionadas, { mostrarDialogoExportar = false; cancionesSeleccionadas.clear() }, { mostrarDialogoExportar = false; exportLauncher.launch("repertorio.la") })
+        DialogoGestionListaTemporal(
+            titulo = "Exportar Canciones (.la)",
+            todasLasCanciones = todasLasCanciones,
+            categorias = categorias,
+            cancionesIniciales = cancionesAExportar,
+            onDismiss = { mostrarDialogoExportar = false },
+            onConfirm = { final -> 
+                cancionesAExportar = final
+                exportLauncher.launch("repertorio.la")
+                mostrarDialogoExportar = false
+            }
+        )
     }
 
     if (mostrarDialogoPresentacion) {
-        var seleccionTemporal by remember { mutableStateOf<String?>(null) }
-        val cancionesManuales = remember { mutableStateMapOf<Int, Boolean>() }
-        
-        AlertDialog(
-            onDismissRequest = { mostrarDialogoPresentacion = false },
-            containerColor = SurfaceDark,
-            title = { Text("Modo Presentación", color = Color.White, fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    if (categorias.isNotEmpty()) {
-                        Text("Selecciona la Lista para presentar:", color = Color.White.copy(alpha = 0.7f))
-                        LazyColumn(modifier = Modifier.heightIn(max = 250.dp)) {
-                            items(categorias.keys.toList()) { cat ->
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { seleccionTemporal = cat }.padding(vertical = 8.dp)) {
-                                    RadioButton(selected = seleccionTemporal == cat, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = CianBrillante))
-                                    Text(cat, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+        var seleccionLista by remember { mutableStateOf<String?>(null) }
+        var cancionesManuales by remember { mutableStateOf<List<Cancion>>(emptyList()) }
+        val listasReales = remember(categorias) { categorias.filter { it.key != "Todas" } }
+        var usarListaExistente by remember { mutableStateOf(listasReales.isNotEmpty()) }
+
+        Dialog(onDismissRequest = { mostrarDialogoPresentacion = false }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f),
+                shape = RoundedCornerShape(24.dp),
+                color = AzulProfundo,
+                tonalElevation = 8.dp
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Configurar Presentación", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(Modifier.height(20.dp))
+
+                    // SECCIÓN DE SELECTOR DINÁMICO (TIPO TOGGLE)
+                    Surface(
+                        color = Color.White.copy(alpha = 0.05f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                            if (listasReales.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (usarListaExistente) CianBrillante else Color.Transparent)
+                                        .clickable { usarListaExistente = true }
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Usar Lista", color = if (usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (!usarListaExistente) CianBrillante else Color.Transparent)
+                                    .clickable { usarListaExistente = false }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Crear Temporal", color = if (!usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    // CONTENIDO DINÁMICO
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        if (usarListaExistente) {
+                            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(listasReales.keys.toList()) { cat ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically, 
+                                        modifier = Modifier.fillMaxWidth()
+                                            .background(if(seleccionLista == cat) CianBrillante.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(12.dp))
+                                            .clickable { seleccionLista = cat }
+                                            .padding(12.dp)
+                                    ) {
+                                        RadioButton(selected = seleccionLista == cat, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = CianBrillante))
+                                        Text(cat, color = Color.White, modifier = Modifier.padding(start = 12.dp), fontWeight = if(seleccionLista == cat) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                }
+                            }
+                        } else {
+                            var mostrarSelectorManual by remember { mutableStateOf(false) }
+                            if (mostrarSelectorManual) {
+                                DialogoSeleccionarCanciones(
+                                    todasLasCanciones = todasLasCanciones,
+                                    categorias = categorias,
+                                    seleccionadasActualmente = cancionesManuales,
+                                    permitirListas = false, 
+                                    onDismiss = { mostrarSelectorManual = false },
+                                    onSongsAdded = { nuevas -> 
+                                        cancionesManuales = (cancionesManuales + nuevas).distinctBy { it.id }
+                                        mostrarSelectorManual = false 
+                                    }
+                                )
+                            }
+
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Box(
+                                    modifier = Modifier.weight(1f).fillMaxWidth()
+                                        .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                                        .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
+                                ) {
+                                    if (cancionesManuales.isEmpty()) {
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Lista vacía", color = Color.White.copy(alpha = 0.4f)) }
+                                    } else {
+                                        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(cancionesManuales) { c ->
+                                                Row(modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(c.titulo, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1, fontSize = 14.sp)
+                                                    IconButton(onClick = { cancionesManuales = cancionesManuales.filter { it.id != c.id } }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Close, null, tint = Color.Red.copy(alpha = 0.6f)) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(Modifier.height(12.dp))
+                                Button(
+                                    onClick = { mostrarSelectorManual = true }, 
+                                    colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo), 
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Añadir Canciones")
                                 }
                             }
                         }
+                    }
+
+                    Spacer(Modifier.height(24.dp))
+                    
+                    // BOTONES DE ACCIÓN
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick = { mostrarDialogoPresentacion = false }, modifier = Modifier.weight(1f)) { Text("Cancelar", color = Color.White) }
+                        Button(
+                            onClick = { 
+                                if (usarListaExistente) { onIniciarPresentacion(seleccionLista!!) }
+                                else { 
+                                    viewModel.guardarCategoria("LISTA_TEMPORAL_AUTO", cancionesManuales.map { it.id })
+                                    onIniciarPresentacion("LISTA_TEMPORAL_AUTO")
+                                }
+                                mostrarDialogoPresentacion = false
+                            },
+                            enabled = if (usarListaExistente) seleccionLista != null else cancionesManuales.isNotEmpty(),
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo),
+                            shape = RoundedCornerShape(12.dp)
+                        ) { Text("Iniciar", fontWeight = FontWeight.Bold) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DialogoGestionListaTemporal(
+    titulo: String,
+    todasLasCanciones: List<Cancion>,
+    categorias: Map<String, List<Int>>,
+    cancionesIniciales: List<Cancion>,
+    onDismiss: () -> Unit,
+    onConfirm: (List<Cancion>) -> Unit
+) {
+    var listaActual by remember { mutableStateOf(cancionesIniciales) }
+    var mostrarSelector by remember { mutableStateOf(false) }
+
+    if (mostrarSelector) {
+        DialogoSeleccionarCanciones(
+            todasLasCanciones = todasLasCanciones,
+            categorias = categorias,
+            seleccionadasActualmente = listaActual,
+            onDismiss = { mostrarSelector = false },
+            onSongsAdded = { nuevas -> listaActual = (listaActual + nuevas).distinctBy { it.id }; mostrarSelector = false }
+        )
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f), shape = RoundedCornerShape(24.dp), color = AzulProfundo, tonalElevation = 6.dp) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(titulo, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(Modifier.height(16.dp))
+                
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(12.dp)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))) {
+                    if (listaActual.isEmpty()) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Selecciona canciones", color = Color.White.copy(alpha = 0.4f)) }
                     } else {
-                        Text("No tienes listas creadas. Selecciona las canciones para tu presentación:", color = Color.White.copy(alpha = 0.7f))
-                        LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                            items(todasLasCanciones) { cancion ->
-                                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { 
-                                    cancionesManuales[cancion.id] = !(cancionesManuales[cancion.id] ?: false)
-                                }.padding(vertical = 4.dp)) {
-                                    Checkbox(checked = cancionesManuales.getOrDefault(cancion.id, false), onCheckedChange = null, colors = CheckboxDefaults.colors(checkedColor = CianBrillante))
-                                    Text(cancion.titulo, color = Color.White, modifier = Modifier.padding(start = 8.dp))
+                        LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(listaActual) { cancion ->
+                                Row(modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(cancion.coverUrl).crossfade(true).build(), contentDescription = null, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.Crop, error = painterResource(id = android.R.drawable.ic_menu_gallery))
+                                    Text(cancion.titulo, color = Color.White, modifier = Modifier.padding(start = 12.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    IconButton(onClick = { listaActual = listaActual.filter { it.id != cancion.id } }) { Icon(Icons.Default.Close, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(18.dp)) }
                                 }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = { 
-                val habilitado = if (categorias.isNotEmpty()) seleccionTemporal != null else cancionesManuales.any { it.value }
-                Button(
-                    onClick = { 
-                        if (categorias.isNotEmpty()) {
-                            onIniciarPresentacion(seleccionTemporal!!)
-                        } else {
-                            val ids = cancionesManuales.filter { it.value }.keys.toList()
-                            // Usamos un nombre específico para identificar que es una lista temporal
-                            viewModel.guardarCategoria("LISTA_TEMPORAL_AUTO", ids)
-                            onIniciarPresentacion("LISTA_TEMPORAL_AUTO")
-                        }
-                        mostrarDialogoPresentacion = false
-                    }, 
-                    colors = ButtonDefaults.buttonColors(containerColor = CianBrillante),
-                    enabled = habilitado
-                ) { Text("Activar", color = AzulProfundo) } 
-            },
-            dismissButton = { TextButton(onClick = { mostrarDialogoPresentacion = false }) { Text("Cancelar", color = Color.White) } }
-        )
+
+                Spacer(Modifier.height(8.dp))
+                Button(onClick = { mostrarSelector = true }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo)) {
+                    Icon(Icons.Default.Add, null); Spacer(Modifier.width(8.dp)); Text("Agregar Canciones", fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(Modifier.height(16.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancelar", color = Color.White) }
+                    Button(onClick = { onConfirm(listaActual) }, enabled = listaActual.isNotEmpty(), modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo)) { Text("Continuar", fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ToolButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = 12.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else 0.3f },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = CianBrillante, modifier = Modifier.size(20.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(text, color = Color.White, fontSize = 16.sp)
+        Spacer(Modifier.weight(1f))
+        Icon(icon, null, tint = Color.White.copy(alpha = 0.3f))
+    }
+}
+
+@Composable
+fun ProfileCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier) {
+    val borderColor by animateColorAsState(if (isSelected) CianBrillante else Color.White.copy(alpha = 0.2f), label = "")
+    val bgColor by animateColorAsState(if (isSelected) CianBrillante.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f), label = "")
+    Box(modifier = modifier.height(100.dp).background(bgColor, RoundedCornerShape(20.dp)).border(2.dp, borderColor, RoundedCornerShape(20.dp)).clickable { onClick() }, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, null, tint = if (isSelected) CianBrillante else Color.White)
+            Text(title, color = if (isSelected) CianBrillante else Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
     }
 }
 
@@ -318,69 +512,5 @@ fun StringButtonReal(note: String, label: String, active: Boolean, onClick: () -
             Text(note, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(label, color = Color.White.copy(alpha = 0.6f), fontSize = 9.sp)
         }
-    }
-}
-
-@Composable
-fun DialogoExportacionAvanzado(todasLasCanciones: List<Cancion>, categorias: Map<String, List<Int>>, seleccionadas: MutableMap<Int, Boolean>, onDismiss: () -> Unit, onConfirm: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Exportar Canciones (.la)", color = Color.White) },
-        containerColor = SurfaceDark,
-        text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 450.dp)) {
-                item { Text("Listas", color = CianBrillante, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp)) }
-                items(categorias.keys.toList()) { cat ->
-                    val ids = categorias[cat] ?: emptyList()
-                    val count = ids.count { seleccionadas[it] == true }
-                    val state = when { count == 0 -> ToggleableState.Off; count == ids.size -> ToggleableState.On; else -> ToggleableState.Indeterminate }
-                    Row(modifier = Modifier.fillMaxWidth().clickable { val newState = state != ToggleableState.On; ids.forEach { seleccionadas[it] = newState } }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        TriStateCheckbox(state = state, onClick = null, colors = CheckboxDefaults.colors(checkedColor = CianBrillante))
-                        Text(cat, color = Color.White, modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-                item { HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp), color = Color.White.copy(alpha = 0.1f)) }
-                item { Text("Canciones Individuales", color = CianBrillante, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp)) }
-                items(todasLasCanciones) { cancion ->
-                    val isChecked = seleccionadas.getOrDefault(cancion.id, false)
-                    Row(modifier = Modifier.fillMaxWidth().clickable { seleccionadas[cancion.id] = !isChecked }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(checked = isChecked, onCheckedChange = null, colors = CheckboxDefaults.colors(checkedColor = CianBrillante))
-                        Text(cancion.titulo, color = Color.White, modifier = Modifier.padding(start = 8.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = { Button(onClick = onConfirm, enabled = seleccionadas.any { it.value }, colors = ButtonDefaults.buttonColors(containerColor = CianBrillante)) { Text("Exportar", color = AzulProfundo) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = Color.White) } }
-    )
-}
-
-@Composable
-fun ProfileCard(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isSelected: Boolean, onClick: () -> Unit, modifier: Modifier) {
-    val borderColor by animateColorAsState(if (isSelected) CianBrillante else Color.White.copy(alpha = 0.2f), label = "")
-    val bgColor by animateColorAsState(if (isSelected) CianBrillante.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.05f), label = "")
-    Box(modifier = modifier.height(100.dp).background(bgColor, RoundedCornerShape(20.dp)).border(2.dp, borderColor, RoundedCornerShape(20.dp)).clickable { onClick() }, contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, null, tint = if (isSelected) CianBrillante else Color.White)
-            Text(title, color = if (isSelected) CianBrillante else Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        }
-    }
-}
-
-@Composable
-fun ToolButton(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(enabled = enabled) { onClick() }
-            .padding(vertical = 12.dp)
-            .graphicsLayer { alpha = if (enabled) 1f else 0.3f },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, tint = CianBrillante, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(16.dp))
-        Text(text, color = Color.White, fontSize = 16.sp)
-        Spacer(Modifier.weight(1f))
-        Icon(icon, null, tint = Color.White.copy(alpha = 0.3f))
     }
 }

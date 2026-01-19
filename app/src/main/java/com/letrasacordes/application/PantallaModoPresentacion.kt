@@ -1,5 +1,6 @@
 package com.letrasacordes.application
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -22,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,20 +42,34 @@ fun PantallaModoPresentacion(
     onCancionClick: (Int) -> Unit,
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
+    val context = LocalContext.current
     val todasLasCanciones by viewModel.todasLasCanciones.collectAsState()
     val categorias by viewModel.categorias.collectAsState()
     
     var cancionesPresentacion by remember { mutableStateOf<List<Cancion>>(emptyList()) }
     
+    // Bloquear botón atrás físico
+    BackHandler {
+        Toast.makeText(context, "Para salir presiona el botón indicado", Toast.LENGTH_SHORT).show()
+    }
+
+    // Lógica de carga robusta
     LaunchedEffect(categoria, todasLasCanciones, categorias) {
-        val ids = categorias[categoria]
-        val listaFiltrada = if (ids != null) {
-            val mapaCanciones = todasLasCanciones.associateBy { it.id }
-            ids.mapNotNull { mapaCanciones[it] }
+        if (todasLasCanciones.isEmpty()) return@LaunchedEffect
+
+        if (categoria == "Todas") {
+            cancionesPresentacion = todasLasCanciones
         } else {
-            todasLasCanciones
+            val ids = categorias[categoria]
+            if (ids != null) {
+                val mapaCanciones = todasLasCanciones.associateBy { it.id }
+                cancionesPresentacion = ids.mapNotNull { mapaCanciones[it] }
+            } else {
+                // Si no se encuentra la lista aún (especialmente la temporal), 
+                // esperamos y mantenemos vacía para mostrar el spinner.
+                cancionesPresentacion = emptyList()
+            }
         }
-        cancionesPresentacion = listaFiltrada
     }
 
     val lazyListState = rememberLazyListState()
@@ -71,11 +87,6 @@ fun PantallaModoPresentacion(
             viewModel.eliminarCategoria(categoria)
         }
         onSalir()
-    }
-
-    // Manejar el botón de atrás físico del dispositivo
-    BackHandler {
-        salirYLimpiar()
     }
 
     fun moveItem(fromIndex: Int, toIndex: Int) {
@@ -97,7 +108,6 @@ fun PantallaModoPresentacion(
                     }
                 },
                 navigationIcon = {
-                    // Espacio vacío para balancear el icono de la derecha
                     Spacer(modifier = Modifier.size(48.dp))
                 },
                 actions = {
@@ -115,60 +125,71 @@ fun PantallaModoPresentacion(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            LazyColumn(
-                state = lazyListState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                itemsIndexed(cancionesPresentacion, key = { _, cancion -> cancion.id }) { index, cancion ->
-                    val isDraggingThis = draggedItemId == cancion.id
-                    val elevation by animateDpAsState(if (isDraggingThis) 16.dp else 0.dp, label = "elevation")
-                    val scale by animateFloatAsState(if (isDraggingThis) 1.05f else 1f, label = "scale")
-                    
-                    val translationY = if (isDraggingThis) {
-                        (initialIndex - index) * itemHeightPx + totalDragOffset
-                    } else 0f
+            // Spinner de carga mientras la lista temporal se sincroniza
+            if (cancionesPresentacion.isEmpty() && categoria != "Todas") {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color.Yellow)
+                        Spacer(Modifier.height(16.dp))
+                        Text("Cargando lista...", color = Color.Yellow, fontSize = 14.sp)
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(cancionesPresentacion, key = { _, cancion -> cancion.id }) { index, cancion ->
+                        val isDraggingThis = draggedItemId == cancion.id
+                        val elevation by animateDpAsState(if (isDraggingThis) 16.dp else 0.dp, label = "elevation")
+                        val scale by animateFloatAsState(if (isDraggingThis) 1.05f else 1f, label = "scale")
+                        
+                        val translationY = if (isDraggingThis) {
+                            (initialIndex - index) * itemHeightPx + totalDragOffset
+                        } else 0f
 
-                    ItemPresentacion(
-                        cancion = cancion,
-                        isDragging = isDraggingThis,
-                        isInteractionDisabled = draggedItemId != null && !isDraggingThis,
-                        elevation = elevation,
-                        modifier = Modifier
-                            .animateItem() 
-                            .zIndex(if (isDraggingThis) 100f else 1f)
-                            .graphicsLayer {
-                                this.translationY = translationY
-                                this.scaleX = scale
-                                this.scaleY = scale
-                            }
-                            .clickable { if (draggedItemId == null) onCancionClick(cancion.id) },
-                        onDragStart = {
-                            draggedItemId = cancion.id
-                            initialIndex = index
-                            totalDragOffset = 0f
-                        },
-                        onDrag = { dragAmount ->
-                            totalDragOffset += dragAmount
-                            
-                            val currentIndex = cancionesPresentacion.indexOfFirst { it.id == draggedItemId }
-                            if (currentIndex != -1) {
-                                val targetIndex = (initialIndex + (totalDragOffset / itemHeightPx).roundToInt())
-                                    .coerceIn(0, cancionesPresentacion.size - 1)
-                                
-                                if (targetIndex != currentIndex) {
-                                    moveItem(currentIndex, targetIndex)
+                        ItemPresentacion(
+                            cancion = cancion,
+                            isDragging = isDraggingThis,
+                            isInteractionDisabled = draggedItemId != null && !isDraggingThis,
+                            elevation = elevation,
+                            modifier = Modifier
+                                .animateItem() 
+                                .zIndex(if (isDraggingThis) 100f else 1f)
+                                .graphicsLayer {
+                                    this.translationY = translationY
+                                    this.scaleX = scale
+                                    this.scaleY = scale
                                 }
+                                .clickable { if (draggedItemId == null) onCancionClick(cancion.id) },
+                            onDragStart = {
+                                draggedItemId = cancion.id
+                                initialIndex = index
+                                totalDragOffset = 0f
+                            },
+                            onDrag = { dragAmount ->
+                                totalDragOffset += dragAmount
+                                
+                                val currentIndex = cancionesPresentacion.indexOfFirst { it.id == draggedItemId }
+                                if (currentIndex != -1) {
+                                    val targetIndex = (initialIndex + (totalDragOffset / itemHeightPx).roundToInt())
+                                        .coerceIn(0, cancionesPresentacion.size - 1)
+                                    
+                                    if (targetIndex != currentIndex) {
+                                        moveItem(currentIndex, targetIndex)
+                                    }
+                                }
+                            },
+                            onDragEnd = {
+                                draggedItemId = null
+                                initialIndex = -1
+                                totalDragOffset = 0f
+                                viewModel.guardarCategoria(categoria, cancionesPresentacion.map { it.id })
                             }
-                        },
-                        onDragEnd = {
-                            draggedItemId = null
-                            initialIndex = -1
-                            totalDragOffset = 0f
-                            viewModel.guardarCategoria(categoria, cancionesPresentacion.map { it.id })
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

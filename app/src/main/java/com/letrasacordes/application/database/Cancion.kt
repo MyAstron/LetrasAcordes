@@ -14,19 +14,23 @@ data class Cancion(
 
     val titulo: String,
 
-    val autor: String?, // Opcional, por eso el '?'
+    val autor: String?, 
     
-    val ritmo: String?, // Nuevo campo añadido
+    val ritmo: String?, 
 
     val letraOriginal: String,
 
     val tieneAcordes: Boolean,
 
-    val tonoOriginal: String?, // Opcional, pero debería estar si tieneAcordes es true
+    val tonoOriginal: String?, 
 
     val letraSinAcordes: String,
 
     val fechaCreacion: Long,
 
-    val ultimaEdicion: Long
+    val ultimaEdicion: Long,
+
+    val coverUrl: String? = null,
+
+    val noBuscarPortada: Boolean = false // Nuevo campo para evitar re-búsquedas si el usuario lo borró
 )

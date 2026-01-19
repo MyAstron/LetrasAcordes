@@ -26,6 +26,9 @@ interface CancionDao {
     @Query("SELECT * FROM canciones WHERE id = :id")
     fun obtenerCancionPorId(id: Int): Flow<Cancion?>
 
+    @Query("SELECT * FROM canciones")
+    suspend fun obtenerTodasLasCancionesSync(): List<Cancion>
+
     // Modificado para ordenar alfabéticamente (case-insensitive), con números y símbolos al final.
     @Query("""
         SELECT * FROM canciones 

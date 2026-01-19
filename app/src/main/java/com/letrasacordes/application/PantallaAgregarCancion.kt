@@ -204,16 +204,22 @@ fun PantallaAgregarCancion(
 
     fun insertarModoInstrumental(modo: String) {
         val currentText = letraValue.text
+        val selection = letraValue.selection
+        val textBefore = currentText.substring(0, selection.start)
+        val textAfter = currentText.substring(selection.start)
+
+        // 0. Validar si ya está dentro de un bloque instrumental para evitar anidación
+        val isInsideBlock = textBefore.lastIndexOf('{') > textBefore.lastIndexOf('}')
+        if (isInsideBlock) {
+            Toast.makeText(context, "No puedes añadir un bloque dentro de otro", Toast.LENGTH_SHORT).show()
+            return
+        }
         
         // 1. Evitar duplicados para INTRO, FINAL, CIRCULO
         if (modo in listOf("INTRO", "FINAL", "CIRCULO") && currentText.contains("[$modo]")) {
             Toast.makeText(context, "Ya existe un $modo en esta canción", Toast.LENGTH_SHORT).show()
             return
         }
-
-        val selection = letraValue.selection
-        val textBefore = currentText.substring(0, selection.start)
-        val textAfter = currentText.substring(selection.start)
 
         // 2. Formateo: Salto de línea si hay texto después
         val prefix = if (selection.start > 0 && currentText[selection.start - 1] != '\n') "\n" else ""

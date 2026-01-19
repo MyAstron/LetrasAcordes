@@ -7,11 +7,13 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -19,8 +21,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -29,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.canhub.cropper.CropImageContract
 import com.canhub.cropper.CropImageContractOptions
 import com.canhub.cropper.CropImageOptions
@@ -36,6 +43,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import com.letrasacordes.application.database.Cancion
+import com.letrasacordes.application.ui.theme.*
 import kotlinx.coroutines.launch
 import java.io.File
 import kotlin.math.abs
@@ -91,7 +99,7 @@ private fun isChordLine(line: String): Boolean {
 
 private fun mergeChordAndLyricLines(chordLines: List<VisionText.Line>, lyricLine: VisionText.Line): String {
     val lyricElements = lyricLine.elements.sortedBy { it.boundingBox?.left }
-    if (lyricElements.isEmpty()) return ""
+    if ( lyricElements.isEmpty()) return ""
     val insertions = mutableMapOf<Int, MutableList<Pair<String, Int>>>()
     val allChordElements = chordLines.flatMap { it.elements }
 
@@ -192,6 +200,10 @@ fun PantallaEditarCancion(
 
     val rhythmOptions = listOf("Balada", "Rock", "Pop", "Bolero", "Cumbia", "Salsa", "Arpegio", "Vals")
 
+    val pickCoverLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { cancion?.let { c -> viewModel.guardarImagenLocal(it, c) } }
+    }
+
     fun insertarAcorde(acorde: String) {
         val currentText = letraValue.text
         val selection = letraValue.selection
@@ -206,16 +218,22 @@ fun PantallaEditarCancion(
 
     fun insertarModoInstrumental(modo: String) {
         val currentText = letraValue.text
+        val selection = letraValue.selection
+        val textBefore = currentText.substring(0, selection.start)
+        val textAfter = currentText.substring(selection.start)
+
+        // 0. Validar si ya está dentro de un bloque instrumental para evitar anidación
+        val isInsideBlock = textBefore.lastIndexOf('{') > textBefore.lastIndexOf('}')
+        if (isInsideBlock) {
+            Toast.makeText(context, "No puedes añadir un bloque dentro de otro", Toast.LENGTH_SHORT).show()
+            return
+        }
         
         // 1. Evitar duplicados para INTRO, FINAL, CIRCULO
         if (modo in listOf("INTRO", "FINAL", "CIRCULO") && currentText.contains("[$modo]")) {
             Toast.makeText(context, "Ya existe un $modo en esta canción", Toast.LENGTH_SHORT).show()
             return
         }
-
-        val selection = letraValue.selection
-        val textBefore = currentText.substring(0, selection.start)
-        val textAfter = currentText.substring(selection.start)
 
         // 2. Formateo: Salto de línea si hay texto después
         val prefix = if (selection.start > 0 && currentText[selection.start - 1] != '\n') "\n" else ""
@@ -446,6 +464,75 @@ fun PantallaEditarCancion(
                                     IconButton(onClick = { showModesBar = !showModesBar; if (showModesBar) showNotesBar = false }) {
                                         Icon(Icons.Default.Add, "Modos", tint = if (showModesBar) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
                                     }
+                                }
+                            }
+                        }
+                    }
+
+                    // PANEL DE GESTIÓN DE ICONO
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color.White.copy(alpha = 0.1f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White.copy(alpha = 0.1f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (cancion.coverUrl != null) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(cancion.coverUrl)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                } else {
+                                    Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(40.dp), tint = Color.White.copy(alpha = 0.5f))
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(
+                                    onClick = { viewModel.buscarPortadaEnItunes(cancion) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AzulMedio)
+                                ) {
+                                    Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Rebuscar", fontSize = 12.sp)
+                                }
+                                Button(
+                                    onClick = { pickCoverLauncher.launch("image/*") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo)
+                                ) {
+                                    Icon(Icons.Default.FileUpload, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Subir", fontSize = 12.sp)
+                                }
+                                Button(
+                                    onClick = { viewModel.borrarIcono(cancion) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentPadding = PaddingValues(0.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.7f))
+                                ) {
+                                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Borrar", fontSize = 12.sp)
                                 }
                             }
                         }
