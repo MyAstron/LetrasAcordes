@@ -60,7 +60,7 @@ import kotlin.math.*
 @Composable
 fun PantallaConfiguracion(
     onNavegarAtras: () -> Unit,
-    onIniciarPresentacion: (String) -> Unit,
+    onIniciarPresentacion: (String, List<Int>?) -> Unit,
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
     val scope = rememberCoroutineScope()
@@ -78,7 +78,6 @@ fun PantallaConfiguracion(
     val categorias by viewModel.categorias.collectAsState()
     var cancionesAExportar by remember { mutableStateOf<List<Cancion>>(emptyList()) }
 
-    // Afinador Controller
     val tunerController = remember { MicrophoneTunerController() }
     var currentResult by remember { mutableStateOf<TunerResult?>(null) }
     val strings = listOf(
@@ -106,7 +105,6 @@ fun PantallaConfiguracion(
         } else res.copy(noteName = selectedNoteName)
     }
 
-    // Lanzadores
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { safeUri ->
             scope.launch {
@@ -243,7 +241,7 @@ fun PantallaConfiguracion(
     if (mostrarDialogoPresentacion) {
         var seleccionLista by remember { mutableStateOf<String?>(null) }
         var cancionesManuales by remember { mutableStateOf<List<Cancion>>(emptyList()) }
-        val listasReales = remember(categorias) { categorias.filter { it.key != "Todas" } }
+        val listasReales = remember(categorias) { categorias.keys.filter { it != "Todas" } }
         var usarListaExistente by remember { mutableStateOf(listasReales.isNotEmpty()) }
 
         Dialog(onDismissRequest = { mostrarDialogoPresentacion = false }) {
@@ -257,14 +255,13 @@ fun PantallaConfiguracion(
                     Text("Configurar Presentación", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                     Spacer(Modifier.height(20.dp))
 
-                    // SECCIÓN DE SELECTOR DINÁMICO (TIPO TOGGLE)
-                    Surface(
-                        color = Color.White.copy(alpha = 0.05f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                            if (listasReales.isNotEmpty()) {
+                    if (listasReales.isNotEmpty()) {
+                        Surface(
+                            color = Color.White.copy(alpha = 0.05f),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -276,28 +273,27 @@ fun PantallaConfiguracion(
                                 ) {
                                     Text("Usar Lista", color = if (usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (!usarListaExistente) CianBrillante else Color.Transparent)
-                                    .clickable { usarListaExistente = false }
-                                    .padding(vertical = 12.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("Crear Temporal", color = if (!usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (!usarListaExistente) CianBrillante else Color.Transparent)
+                                        .clickable { usarListaExistente = false }
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("Crear Temporal", color = if (!usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                }
                             }
                         }
                     }
 
                     Spacer(Modifier.height(16.dp))
 
-                    // CONTENIDO DINÁMICO
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         if (usarListaExistente) {
                             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(listasReales.keys.toList()) { cat ->
+                                items(listasReales) { cat ->
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically, 
                                         modifier = Modifier.fillMaxWidth()
@@ -360,15 +356,20 @@ fun PantallaConfiguracion(
 
                     Spacer(Modifier.height(24.dp))
                     
-                    // BOTONES DE ACCIÓN
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         TextButton(onClick = { mostrarDialogoPresentacion = false }, modifier = Modifier.weight(1f)) { Text("Cancelar", color = Color.White) }
                         Button(
                             onClick = { 
-                                if (usarListaExistente) { onIniciarPresentacion(seleccionLista!!) }
-                                else { 
-                                    viewModel.guardarCategoria("LISTA_TEMPORAL_AUTO", cancionesManuales.map { it.id })
-                                    onIniciarPresentacion("LISTA_TEMPORAL_AUTO")
+                                if (usarListaExistente) {
+                                    if (seleccionLista != null) {
+                                        onIniciarPresentacion(seleccionLista!!, null)
+                                    }
+                                } else {
+                                    if (cancionesManuales.isNotEmpty()) {
+                                        val ids = cancionesManuales.map { it.id }
+                                        viewModel.guardarCategoria("LISTA_TEMPORAL_AUTO", ids)
+                                        onIniciarPresentacion("LISTA_TEMPORAL_AUTO", ids)
+                                    }
                                 }
                                 mostrarDialogoPresentacion = false
                             },
@@ -384,6 +385,7 @@ fun PantallaConfiguracion(
     }
 }
 
+// Resto del código sin cambios...
 @Composable
 fun DialogoGestionListaTemporal(
     titulo: String,

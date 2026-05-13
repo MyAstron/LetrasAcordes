@@ -1,6 +1,7 @@
 package com.letrasacordes.application
 
 import android.content.Context
+import android.media.MediaPlayer
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -74,6 +75,9 @@ fun PantallaVerCancion(
     var isMetronomeRunning by remember { mutableStateOf(false) }
     var bpm by remember { mutableIntStateOf(100) }
 
+    val mediaPlayer = remember { MediaPlayer() }
+    var isAudioMuted by remember { mutableStateOf(false) }
+
     val scrollState = rememberScrollState()
 
     LaunchedEffect(cancionActual) {
@@ -83,7 +87,12 @@ fun PantallaVerCancion(
         }
     }
 
-    DisposableEffect(Unit) { onDispose { metronome.release() } }
+    DisposableEffect(Unit) {
+        onDispose {
+            metronome.release()
+            mediaPlayer.release()
+        }
+    }
 
     val backgroundBrush = if (altoContraste) Brush.verticalGradient(listOf(Color.Black, Color.Black)) 
                          else Brush.verticalGradient(listOf(AzulProfundo, AzulMedio))
@@ -111,6 +120,33 @@ fun PantallaVerCancion(
 
     // 4. DIÁLOGO DE INFO RÁPIDA
     if (mostrarInfoRapida) {
+        LaunchedEffect(cancionActual?.previewUrl) {
+            val url = cancionActual?.previewUrl
+            if (!url.isNullOrBlank() && cancionActual?.coverUrl != null && cancionActual?.titulo != null) {
+                try {
+                    mediaPlayer.reset()
+                    mediaPlayer.setDataSource(url)
+                    mediaPlayer.prepareAsync()
+                    mediaPlayer.setOnPreparedListener { mp ->
+                        mp.isLooping = true
+                        mp.setVolume(if (isAudioMuted) 0f else 0.3f, if (isAudioMuted) 0f else 0.3f)
+                        mp.start()
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        DisposableEffect(Unit) {
+            onDispose {
+                if (mediaPlayer.isPlaying) {
+                    mediaPlayer.stop()
+                }
+                mediaPlayer.reset()
+            }
+        }
+
         Dialog(onDismissRequest = { mostrarInfoRapida = false }) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
@@ -160,6 +196,19 @@ fun PantallaVerCancion(
                             textAlign = TextAlign.Center
                         )
                     }
+
+                    if (!cancionActual?.previewUrl.isNullOrBlank()) {
+                        IconButton(onClick = {
+                            isAudioMuted = !isAudioMuted
+                            mediaPlayer.setVolume(if (isAudioMuted) 0f else 0.3f, if (isAudioMuted) 0f else 0.3f)
+                        }) {
+                            Icon(
+                                imageVector = if (isAudioMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                                contentDescription = "Silenciar",
+                                tint = Color.White
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -196,7 +245,7 @@ fun PantallaVerCancion(
             ) {
                 AnimatedVisibility(visible = mostrarRielDiagramas && cancionActual?.tieneAcordes == true) {
                     val acordesUnicos = remember(cancionActual, semitonos) {
-                        val texto = cancionActual?.let { it.letraOriginal } ?: ""
+                        val texto = cancionActual?.letraOriginal ?: ""
                         val listaAcordes = mutableListOf<String>()
                         
                         // Regex mejorado para capturar [Acorde] o [Etiqueta]{Acordes}

@@ -503,10 +503,14 @@ fun PantallaEditarCancion(
                                 }
                             }
 
-                            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Button(
                                     onClick = { viewModel.buscarPortadaEnItunes(cancion) },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(0.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = AzulMedio)
                                 ) {
@@ -516,7 +520,7 @@ fun PantallaEditarCancion(
                                 }
                                 Button(
                                     onClick = { pickCoverLauncher.launch("image/*") },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(0.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo)
                                 ) {
@@ -526,7 +530,7 @@ fun PantallaEditarCancion(
                                 }
                                 Button(
                                     onClick = { viewModel.borrarIcono(cancion) },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.weight(1f),
                                     contentPadding = PaddingValues(0.dp),
                                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.7f))
                                 ) {

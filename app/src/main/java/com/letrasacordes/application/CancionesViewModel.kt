@@ -63,10 +63,6 @@ class CancionesViewModel(
 
     init {
         refrescarCategorias()
-        // Limpieza de lista temporal al iniciar
-        categoryRepository.deleteCategory("LISTA_TEMPORAL_AUTO")
-        refrescarCategorias()
-
         // Búsqueda automática de portadas
         viewModelScope.launch(Dispatchers.IO) {
             val cancionesActuales = dao.obtenerTodasLasCancionesSync()

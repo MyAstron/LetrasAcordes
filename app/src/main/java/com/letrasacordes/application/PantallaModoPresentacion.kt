@@ -38,6 +38,7 @@ import kotlin.math.roundToInt
 @Composable
 fun PantallaModoPresentacion(
     categoria: String,
+    cancionIds: List<Int>?,
     onSalir: () -> Unit,
     onCancionClick: (Int) -> Unit,
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
@@ -48,27 +49,18 @@ fun PantallaModoPresentacion(
     
     var cancionesPresentacion by remember { mutableStateOf<List<Cancion>>(emptyList()) }
     
-    // Bloquear botón atrás físico
     BackHandler {
         Toast.makeText(context, "Para salir presiona el botón indicado", Toast.LENGTH_SHORT).show()
     }
 
-    // Lógica de carga robusta
-    LaunchedEffect(categoria, todasLasCanciones, categorias) {
+    LaunchedEffect(categoria, cancionIds, todasLasCanciones, categorias) {
         if (todasLasCanciones.isEmpty()) return@LaunchedEffect
 
-        if (categoria == "Todas") {
-            cancionesPresentacion = todasLasCanciones
-        } else {
-            val ids = categorias[categoria]
-            if (ids != null) {
-                val mapaCanciones = todasLasCanciones.associateBy { it.id }
-                cancionesPresentacion = ids.mapNotNull { mapaCanciones[it] }
-            } else {
-                // Si no se encuentra la lista aún (especialmente la temporal), 
-                // esperamos y mantenemos vacía para mostrar el spinner.
-                cancionesPresentacion = emptyList()
-            }
+        val idsParaUsar = cancionIds ?: categorias[categoria]
+
+        if (idsParaUsar != null) {
+            val mapaCanciones = todasLasCanciones.associateBy { it.id }
+            cancionesPresentacion = idsParaUsar.mapNotNull { mapaCanciones[it] }
         }
     }
 
@@ -81,7 +73,6 @@ fun PantallaModoPresentacion(
     val density = LocalDensity.current
     val itemHeightPx = with(density) { 92.dp.toPx() }
 
-    // Función unificada para salir y limpiar si es necesario
     val salirYLimpiar = {
         if (categoria == "LISTA_TEMPORAL_AUTO") {
             viewModel.eliminarCategoria(categoria)
@@ -125,7 +116,6 @@ fun PantallaModoPresentacion(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Spinner de carga mientras la lista temporal se sincroniza
             if (cancionesPresentacion.isEmpty() && categoria != "Todas") {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {

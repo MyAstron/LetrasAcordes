@@ -14,15 +14,15 @@ data class Cancion(
 
     val titulo: String,
 
-    val autor: String?, 
-    
-    val ritmo: String?, 
+    val autor: String?,
+
+    val ritmo: String?,
 
     val letraOriginal: String,
 
     val tieneAcordes: Boolean,
 
-    val tonoOriginal: String?, 
+    val tonoOriginal: String?,
 
     val letraSinAcordes: String,
 
@@ -31,6 +31,8 @@ data class Cancion(
     val ultimaEdicion: Long,
 
     val coverUrl: String? = null,
+
+    val previewUrl: String? = null,
 
     val noBuscarPortada: Boolean = false // Nuevo campo para evitar re-búsquedas si el usuario lo borró
 )

@@ -15,9 +15,11 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -35,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -122,7 +125,6 @@ fun PantallaPrincipalCanciones(
     var isInEditMode by remember { mutableStateOf(false) }
     var mostrarDialogoImprimir by remember { mutableStateOf(false) }
 
-    // Estado para la nueva lógica de impresión
     var cancionesAImprimir by remember { mutableStateOf<List<Cancion>>(emptyList()) }
     var imprimirConAcordes by remember { mutableStateOf(true) }
     var incluirIndice by remember { mutableStateOf(true) }
@@ -135,13 +137,11 @@ fun PantallaPrincipalCanciones(
         (context as? Activity)?.finish()
     }
 
-    // Launcher para PDF con compartir inmediato
     val pdfLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         uri?.let { safeUri ->
             scope.launch {
                 cancionesViewModel.generarPdf(cancionesAImprimir, imprimirConAcordes, incluirIndice, modoCompacto, safeUri)
                 
-                // Abrir menú de compartir inmediatamente después de generar
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "application/pdf"
                     putExtra(Intent.EXTRA_STREAM, safeUri)
@@ -152,7 +152,6 @@ fun PantallaPrincipalCanciones(
         }
     }
 
-    // --- DIÁLOGOS DE CATEGORÍAS ---
     if (mostrarDialogoCrearCategoria) {
         DialogoCrearEditarCategoria(
             todasLasCanciones = todasLasCanciones,
@@ -218,6 +217,23 @@ fun PantallaPrincipalCanciones(
         colors = listOf(AzulProfundo, AzulMedio, CianBrillante.copy(alpha = 0.5f))
     )
 
+    val lazyListState = rememberLazyListState()
+    val uniqueInitialLetters = remember(listaCanciones) {
+        listaCanciones
+            .map { it.titulo.first().uppercaseChar() }
+            .filter { it.isLetter() }
+            .distinct()
+            .sorted()
+    }
+    
+    var activeLetter by remember { mutableStateOf<Char?>(null) }
+    
+    LaunchedEffect(lazyListState.firstVisibleItemIndex) {
+        if (listaCanciones.isNotEmpty() && lazyListState.firstVisibleItemIndex < listaCanciones.size) {
+            activeLetter = listaCanciones[lazyListState.firstVisibleItemIndex].titulo.first().uppercaseChar()
+        }
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
@@ -253,7 +269,6 @@ fun PantallaPrincipalCanciones(
                 .padding(paddingValues)
                 .background(backgroundGradient)
         ) {
-            // Buscador
             OutlinedTextField(
                 value = textoBusqueda,
                 onValueChange = cancionesViewModel::enTextoBusquedaCambiado,
@@ -272,7 +287,6 @@ fun PantallaPrincipalCanciones(
                 singleLine = true
             )
 
-            // Fila de Categorías con Edición
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -327,25 +341,70 @@ fun PantallaPrincipalCanciones(
                     }
                 }
             }
-
-            // Lista de canciones
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 80.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                itemsIndexed(listaCanciones) { index, cancion ->
-                    AnimatedVisibility(
-                        visible = true,
-                        enter = slideInVertically(initialOffsetY = { 40 * (index + 1) }) + fadeIn()
-                    ) {
-                        CardPlantilla(cancion = cancion, onClick = { onCancionClick(cancion.id) })
+            
+            Row(Modifier.fillMaxSize()) {
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(16.dp, 16.dp, 16.dp, 80.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(listaCanciones) { index, cancion ->
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = slideInVertically(initialOffsetY = { 40 * (index + 1) }) + fadeIn()
+                        ) {
+                            CardPlantilla(cancion = cancion, onClick = { onCancionClick(cancion.id) })
+                        }
                     }
                 }
+                
+                AlphabeticalIndex(
+                    letters = uniqueInitialLetters,
+                    activeLetter = activeLetter,
+                    onLetterClick = { letter ->
+                        scope.launch {
+                            val index = listaCanciones.indexOfFirst { it.titulo.startsWith(letter, ignoreCase = true) }
+                            if (index != -1) {
+                                lazyListState.scrollToItem(index)
+                            }
+                        }
+                    }
+                )
             }
         }
     }
 }
+
+
+@Composable
+fun AlphabeticalIndex(
+    letters: List<Char>,
+    activeLetter: Char?,
+    onLetterClick: (Char) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    
+    Column(
+        modifier = Modifier
+            .fillMaxHeight()
+            .padding(horizontal = 8.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        letters.forEach { letter ->
+            Text(
+                text = letter.toString(),
+                color = if (letter == activeLetter) CianBrillante else Color.White.copy(alpha = 0.7f),
+                fontWeight = if (letter == activeLetter) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier
+                    .padding(vertical = 2.dp)
+                    .clickable { onLetterClick(letter) }
+            )
+        }
+    }
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -519,7 +578,6 @@ fun DialogoImprimir(
                 Text("Imprimir Cancionero (PDF)", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                 Spacer(Modifier.height(12.dp))
 
-                // Opciones
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { onIncluirAcordesChange(!incluirAcordes) }.fillMaxWidth()) {
                         Checkbox(checked = incluirAcordes, onCheckedChange = null, colors = CheckboxDefaults.colors(checkedColor = CianBrillante, uncheckedColor = Color.White.copy(alpha = 0.6f)))
@@ -537,7 +595,6 @@ fun DialogoImprimir(
 
                 Spacer(Modifier.height(12.dp))
                 
-                // Lista Ordenable
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -672,7 +729,6 @@ fun ItemOrdenablePdf(
             
             Spacer(modifier = Modifier.width(4.dp))
 
-            // PORTADA DE LA CANCIÓN
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(cancion.coverUrl)
@@ -720,7 +776,7 @@ fun DialogoSeleccionarCanciones(
     todasLasCanciones: List<Cancion>,
     categorias: Map<String, List<Int>>,
     seleccionadasActualmente: List<Cancion>,
-    permitirListas: Boolean = true, // Punto 2: Controlar si se muestran las listas
+    permitirListas: Boolean = true,
     onDismiss: () -> Unit,
     onSongsAdded: (List<Cancion>) -> Unit
 ) {
@@ -739,7 +795,6 @@ fun DialogoSeleccionarCanciones(
                 
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     if (permitirListas) {
-                        // Filtramos las listas: quitamos "Todas" y quitamos las que ya están totalmente agregadas
                         val categoriasDisponibles = categorias.filter { entry ->
                             entry.key != "Todas" && entry.value.any { it !in idsInicialmenteSeleccionados }
                         }
@@ -775,7 +830,6 @@ fun DialogoSeleccionarCanciones(
                                     seleccionadasTemporales[cancion.id] = !(seleccionadasTemporales[cancion.id] ?: false) 
                                 }.padding(vertical = 8.dp)
                             ) {
-                                // Punto 1: Checkbox para selección múltiple
                                 Checkbox(
                                     checked = seleccionadasTemporales.getOrDefault(cancion.id, false),
                                     onCheckedChange = null,
@@ -809,8 +863,8 @@ fun DialogoSeleccionarCanciones(
                     TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cerrar", color = Color.White) }
                     Button(
                         onClick = { 
-                            val cancionesAEliminar = todasLasCanciones.filter { seleccionadasTemporales[it.id] == true }
-                            onSongsAdded(cancionesAEliminar)
+                            val cancionesAAnadir = todasLasCanciones.filter { seleccionadasTemporales[it.id] == true }
+                            onSongsAdded(cancionesAAnadir)
                         },
                         enabled = seleccionadasTemporales.any { it.value },
                         modifier = Modifier.weight(1f),
@@ -831,7 +885,6 @@ fun CardPlantilla(cancion: Cancion, onClick: () -> Unit) {
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            // PORTADA EN LISTA PRINCIPAL
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(cancion.coverUrl)
