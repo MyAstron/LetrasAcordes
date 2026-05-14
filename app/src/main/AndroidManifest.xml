@@ -48,12 +48,14 @@
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="text/plain" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="app" android:host="cancion" />
             </intent-filter>
         </activity>
 
         <receiver
-            android:name=".ui.SetlistWidgetReceiver"
+            android:name=".ui.widget.SetlistWidgetReceiver"
+            android:label="@string/widget_setlist_name"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -61,6 +63,18 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/setlist_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ui.widget.MetronomeWidgetReceiver"
+            android:label="@string/widget_metronome_name"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/metronome_widget_info" />
         </receiver>
 
         <activity android:name="com.canhub.cropper.CropImageActivity"

@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -68,15 +69,32 @@ fun PantallaConfiguracion(
     val sharedPreferences = remember { context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) {
+        viewModel.refrescarCategorias()
+    }
+
     var userProfile by remember { mutableStateOf(sharedPreferences.getString("user_profile", "GUITARRA") ?: "GUITARRA") }
     
     var mostrarAfinador by remember { mutableStateOf(false) }
     var mostrarDialogoExportar by remember { mutableStateOf(false) }
     var mostrarDialogoPresentacion by remember { mutableStateOf(false) }
+    var mostrarDialogoWidget by remember { mutableStateOf(false) }
 
     val todasLasCanciones by viewModel.todasLasCanciones.collectAsState()
     val categorias by viewModel.categorias.collectAsState()
     var cancionesAExportar by remember { mutableStateOf<List<Cancion>>(emptyList()) }
+    
+    val categoryRepository = remember { com.letrasacordes.application.logic.CategoryRepository(context) }
+    var cancionesWidget by remember { 
+        val ids = categoryRepository.getSongIdsForCategory("WIDGET_SELECTION")
+        mutableStateOf(todasLasCanciones.filter { it.id in ids })
+    }
+
+    // Actualizar cancionesWidget cuando todasLasCanciones carguen
+    LaunchedEffect(todasLasCanciones) {
+        val ids = categoryRepository.getSongIdsForCategory("WIDGET_SELECTION")
+        cancionesWidget = todasLasCanciones.filter { it.id in ids }
+    }
 
     val tunerController = remember { MicrophoneTunerController() }
     var currentResult by remember { mutableStateOf<TunerResult?>(null) }
@@ -197,8 +215,17 @@ fun PantallaConfiguracion(
                             }
                         }
 
-                        ToolButton("Importar (.la / .txt)", Icons.Default.FileDownload) { importLauncher.launch(arrayOf("*/*")) }
+                        ToolButton("Importar (.la)", Icons.Default.FileDownload) { importLauncher.launch(arrayOf("*/*")) }
                         ToolButton("Exportar Selección (.la)", Icons.Default.FileUpload) { mostrarDialogoExportar = true }
+                    }
+                }
+            }
+
+            item {
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)), modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("HERRAMIENTAS DE WIDGET", color = PlataBrillante, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        ToolButton("Personalizar Lista del Widget", Icons.Default.Widgets) { mostrarDialogoWidget = true }
                     }
                 }
             }
@@ -234,6 +261,38 @@ fun PantallaConfiguracion(
                 cancionesAExportar = final
                 exportLauncher.launch("repertorio.la")
                 mostrarDialogoExportar = false
+            }
+        )
+    }
+
+    if (mostrarDialogoWidget) {
+        DialogoGestionListaTemporal(
+            titulo = "Personalizar Widget",
+            todasLasCanciones = todasLasCanciones,
+            categorias = categorias,
+            cancionesIniciales = cancionesWidget,
+            onDismiss = { mostrarDialogoWidget = false },
+            onConfirm = { final -> 
+                cancionesWidget = final.take(6)
+                val ids = cancionesWidget.map { it.id }
+                categoryRepository.saveCategory("WIDGET_SELECTION", ids)
+                
+                if (final.size > 6) {
+                    Toast.makeText(context, "Solo se guardaron las primeras 6 canciones", Toast.LENGTH_SHORT).show()
+                }
+                
+                // Actualizar el Widget inmediatamente
+                scope.launch {
+                    try {
+                        val manager = GlanceAppWidgetManager(context)
+                        val glanceIds = manager.getGlanceIds(com.letrasacordes.application.ui.widget.SetlistWidget::class.java)
+                        glanceIds.forEach { id ->
+                            com.letrasacordes.application.ui.widget.SetlistWidget().update(context, id)
+                        }
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+                
+                mostrarDialogoWidget = false
             }
         )
     }
@@ -329,7 +388,7 @@ fun PantallaConfiguracion(
                                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                                 ) {
                                     if (cancionesManuales.isEmpty()) {
-                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Lista vacía", color = Color.White.copy(alpha = 0.4f)) }
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Preferiblemente, crear una lista", color = Color.White.copy(alpha = 0.4f)) }
                                     } else {
                                         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             items(cancionesManuales) { c ->

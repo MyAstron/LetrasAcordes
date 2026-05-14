@@ -9,7 +9,9 @@
     <color name="white">#FFFFFFFF</color>
     
     <!-- Colores para el Widget -->
-    <color name="widget_cinta_amarilla">#FFF176</color>
-    <color name="widget_texto_marcador">#000000</color>
-    <color name="widget_fondo">#FFFFFF</color>
+    <color name="widget_fondo">#1A237E</color>
+    <color name="widget_card">#283593</color>
+    <color name="widget_accent">#4FC3F7</color>
+    <color name="widget_text">#FFFFFF</color>
+    <color name="widget_stop">#F28B82</color>
 </resources>

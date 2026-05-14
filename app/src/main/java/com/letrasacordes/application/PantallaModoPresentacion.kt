@@ -4,9 +4,10 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -22,10 +23,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -44,6 +48,7 @@ fun PantallaModoPresentacion(
     viewModel: CancionesViewModel = viewModel(factory = CancionesViewModel.Factory)
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val todasLasCanciones by viewModel.todasLasCanciones.collectAsState()
     val categorias by viewModel.categorias.collectAsState()
     
@@ -152,9 +157,11 @@ fun PantallaModoPresentacion(
                                     this.translationY = translationY
                                     this.scaleX = scale
                                     this.scaleY = scale
+                                    this.alpha = if (draggedItemId != null && !isDraggingThis) 0.6f else 1f
                                 }
-                                .clickable { if (draggedItemId == null) onCancionClick(cancion.id) },
+                                .clickable(enabled = draggedItemId == null) { onCancionClick(cancion.id) },
                             onDragStart = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 draggedItemId = cancion.id
                                 initialIndex = index
                                 totalDragOffset = 0f
@@ -198,26 +205,27 @@ fun ItemPresentacion(
     onDragEnd: () -> Unit
 ) {
     Card(
-        modifier = modifier.fillMaxWidth().height(80.dp),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier.fillMaxWidth().height(72.dp),
+        shape = RoundedCornerShape(12.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = elevation),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDragging) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.15f)
-        )
+            containerColor = if (isDragging) Color.White.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.08f)
+        ),
+        border = if (isDragging) BorderStroke(1.dp, Color.Yellow.copy(alpha = 0.5f)) else null
     ) {
         Row(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 Icons.Default.DragHandle, 
                 contentDescription = "Reordenar", 
-                tint = if (isInteractionDisabled) Color.White.copy(alpha = 0.2f) else Color.Yellow,
+                tint = if (isInteractionDisabled) Color.White.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.4f),
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(36.dp)
                     .pointerInput(isInteractionDisabled) {
                         if (isInteractionDisabled) return@pointerInput
-                        detectDragGesturesAfterLongPress(
+                        detectDragGestures(
                             onDragStart = { onDragStart() },
                             onDrag = { change, dragAmount ->
                                 change.consume()
@@ -230,29 +238,33 @@ fun ItemPresentacion(
                     .padding(8.dp)
             )
             
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = cancion.titulo, 
                     style = MaterialTheme.typography.titleMedium, 
                     color = Color.White, 
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     text = cancion.autor ?: "Autor desconocido", 
                     style = MaterialTheme.typography.bodySmall, 
-                    color = Color.White.copy(alpha = 0.7f),
-                    maxLines = 1
+                    color = Color.White.copy(alpha = 0.5f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             
-            Box(
-                modifier = Modifier.size(32.dp).background(Color.Yellow.copy(alpha = 0.2f), RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.MusicNote, null, tint = Color.Yellow, modifier = Modifier.size(18.dp))
+            if (!isDragging) {
+                Icon(
+                    Icons.Default.MusicNote, 
+                    null, 
+                    tint = Color.Yellow.copy(alpha = 0.6f), 
+                    modifier = Modifier.size(20.dp).padding(4.dp)
+                )
             }
         }
     }

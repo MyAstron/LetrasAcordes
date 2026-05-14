@@ -1,9 +1,11 @@
 package com.letrasacordes.application
 
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -34,8 +36,37 @@ object Rutas {
 }
 
 @Composable
-fun NavegacionApp(inicioRealizado: Boolean = false) {
+fun NavegacionApp(
+    inicioRealizado: Boolean = false,
+    deepLinkUri: Uri? = null,
+    onDeepLinkHandled: () -> Unit = {}
+) {
     val navController = rememberNavController()
+    val context = LocalContext.current
+    val activity = context as? MainActivity
+    
+    // Manejar Deep Links de forma reactiva
+    LaunchedEffect(deepLinkUri) {
+        // 1. Intentar por URI (Data)
+        deepLinkUri?.let { uri ->
+            if (uri.scheme == "app" && uri.host == "cancion") {
+                val id = uri.lastPathSegment?.toIntOrNull()
+                if (id != null) {
+                    navController.navigate(Rutas.verCancionConId(id))
+                    onDeepLinkHandled()
+                    return@LaunchedEffect
+                }
+            }
+        }
+        
+        // 2. Intentar por Extras (si la URI falló)
+        val idExtra = activity?.intent?.getIntExtra("cancionId", -1) ?: -1
+        if (idExtra != -1) {
+            navController.navigate(Rutas.verCancionConId(idExtra))
+            activity?.intent?.removeExtra("cancionId")
+            onDeepLinkHandled()
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -110,8 +141,7 @@ fun NavegacionApp(inicioRealizado: Boolean = false) {
             PantallaConfiguracion(
                 onNavegarAtras = { navController.popBackStack() },
                 onIniciarPresentacion = { categoria, cancionIds ->
-                    val gson = Gson()
-                    val cancionIdsJson = gson.toJson(cancionIds)
+                    val cancionIdsJson = cancionIds?.let { Gson().toJson(it) }
                     navController.navigate(Rutas.modoPresentacionConCategoria(categoria, cancionIdsJson))
                 }
             )

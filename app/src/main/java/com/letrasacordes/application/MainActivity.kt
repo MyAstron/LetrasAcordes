@@ -75,22 +75,34 @@ class MainActivity : ComponentActivity() {
                     val uri by _intentUri
 
                     LaunchedEffect(uri) {
-                        uri?.let { safeUri ->
-                            try {
-                                context.contentResolver.openInputStream(safeUri)?.use { inputStream ->
-                                    val bytes = inputStream.readBytes()
-                                    val count = viewModel.importarCanciones(bytes)
-                                    Toast.makeText(context, "$count canciones importadas", Toast.LENGTH_LONG).show()
-                                }
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Error al importar: ${e.message}", Toast.LENGTH_LONG).show()
-                                e.printStackTrace()
-                            }
-                            _intentUri.value = null
+                        val safeUri = uri ?: return@LaunchedEffect
+                        
+                        if (safeUri.scheme == "app") {
+                            // Deep link del widget - No procesar como archivo
+                            return@LaunchedEffect
                         }
+
+                        // Es un archivo .la o similar
+                        try {
+                            context.contentResolver.openInputStream(safeUri)?.use { inputStream ->
+                                val bytes = inputStream.readBytes()
+                                val count = viewModel.importarCanciones(bytes)
+                                Toast.makeText(context, "$count canciones importadas", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Exception) {
+                            // Solo mostramos el error si el esquema parece de archivo (content o file)
+                            if (safeUri.scheme == "content" || safeUri.scheme == "file") {
+                                Toast.makeText(context, "Error al importar archivo: ${e.message}", Toast.LENGTH_LONG).show()
+                            }
+                            e.printStackTrace()
+                        }
+                        _intentUri.value = null
                     }
 
-                    NavegacionApp()
+                    NavegacionApp(
+                        deepLinkUri = uri,
+                        onDeepLinkHandled = { _intentUri.value = null }
+                    )
                 }
             }
         }
@@ -133,6 +145,10 @@ fun PantallaPrincipalCanciones(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     
+    LaunchedEffect(Unit) {
+        cancionesViewModel.refrescarCategorias()
+    }
+
     BackHandler {
         (context as? Activity)?.finish()
     }
@@ -287,6 +303,10 @@ fun PantallaPrincipalCanciones(
                 singleLine = true
             )
 
+            val categoriasVisibles = remember(categorias) { 
+                categorias.keys.filter { it != "WIDGET_SELECTION" && it != "LISTA_TEMPORAL_AUTO" }.toList()
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -303,7 +323,7 @@ fun PantallaPrincipalCanciones(
                             colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CianBrillante, selectedLabelColor = AzulProfundo, labelColor = Color.White)
                         )
                     }
-                    items(categorias.keys.toList()) { cat ->
+                    items(categoriasVisibles) { cat ->
                         if (isInEditMode) {
                             InputChip(
                                 selected = false,
