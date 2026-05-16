@@ -59,9 +59,13 @@ fun PantallaModoPresentacion(
     }
 
     LaunchedEffect(categoria, cancionIds, todasLasCanciones, categorias) {
+        android.util.Log.d("PRESENTACION_DEBUG", "modo presentacion iniciado")
+        android.util.Log.d("PRESENTACION_DEBUG", "presentacion abierta con tal lista: $categoria")
         if (todasLasCanciones.isEmpty()) return@LaunchedEffect
 
         val idsParaUsar = cancionIds ?: categorias[categoria]
+        
+        android.util.Log.d("PRESENTACION_DEBUG", "mandando tal listado a presentacion: $idsParaUsar")
 
         if (idsParaUsar != null) {
             val mapaCanciones = todasLasCanciones.associateBy { it.id }

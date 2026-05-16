@@ -65,18 +65,6 @@
                 android:resource="@xml/setlist_widget_info" />
         </receiver>
 
-        <receiver
-            android:name=".ui.widget.MetronomeWidgetReceiver"
-            android:label="@string/widget_metronome_name"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/metronome_widget_info" />
-        </receiver>
-
         <activity android:name="com.canhub.cropper.CropImageActivity"
             android:theme="@style/Base.Theme.AppCompat"/>
 

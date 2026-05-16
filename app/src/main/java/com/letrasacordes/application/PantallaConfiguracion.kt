@@ -225,7 +225,11 @@ fun PantallaConfiguracion(
                 Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.05f)), modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text("HERRAMIENTAS DE WIDGET", color = PlataBrillante, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        ToolButton("Personalizar Lista del Widget", Icons.Default.Widgets) { mostrarDialogoWidget = true }
+                        val nombreWidget = sharedPreferences.getString("widget_category", null)
+                        ToolButton(
+                            text = if (nombreWidget != null) "$nombreWidget en widget" else "Lista para mostrar en widget", 
+                            icon = Icons.Default.Widgets
+                        ) { mostrarDialogoWidget = true }
                     }
                 }
             }
@@ -266,42 +270,63 @@ fun PantallaConfiguracion(
     }
 
     if (mostrarDialogoWidget) {
-        DialogoGestionListaTemporal(
-            titulo = "Personalizar Widget",
-            todasLasCanciones = todasLasCanciones,
-            categorias = categorias,
-            cancionesIniciales = cancionesWidget,
-            onDismiss = { mostrarDialogoWidget = false },
-            onConfirm = { final -> 
-                cancionesWidget = final.take(6)
-                val ids = cancionesWidget.map { it.id }
-                categoryRepository.saveCategory("WIDGET_SELECTION", ids)
-                
-                if (final.size > 6) {
-                    Toast.makeText(context, "Solo se guardaron las primeras 6 canciones", Toast.LENGTH_SHORT).show()
-                }
-                
-                // Actualizar el Widget inmediatamente
-                scope.launch {
-                    try {
-                        val manager = GlanceAppWidgetManager(context)
-                        val glanceIds = manager.getGlanceIds(com.letrasacordes.application.ui.widget.SetlistWidget::class.java)
-                        glanceIds.forEach { id ->
-                            com.letrasacordes.application.ui.widget.SetlistWidget().update(context, id)
+        val listasDisponibles = (listOf("Favoritos") + categorias.keys.filter { it != "Todas" && it != "Favoritos" && it != "WIDGET_SELECTION" && it != "LISTA_TEMPORAL_AUTO" }).distinct()
+        var listaSeleccionada by remember { mutableStateOf(sharedPreferences.getString("widget_category", "Favoritos") ?: "Favoritos") }
+        
+        Dialog(onDismissRequest = { mostrarDialogoWidget = false }) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f),
+                shape = RoundedCornerShape(24.dp),
+                color = AzulProfundo
+            ) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Text("Lista para mostrar en Widget", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
+                    Spacer(Modifier.height(16.dp))
+                    
+                    LazyColumn(modifier = Modifier.weight(1f)) {
+                        items(listasDisponibles) { cat ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically, 
+                                modifier = Modifier.fillMaxWidth()
+                                    .background(if(listaSeleccionada == cat) CianBrillante.copy(alpha = 0.1f) else Color.Transparent, RoundedCornerShape(12.dp))
+                                    .clickable { listaSeleccionada = cat }
+                                    .padding(12.dp)
+                            ) {
+                                RadioButton(selected = listaSeleccionada == cat, onClick = null, colors = RadioButtonDefaults.colors(selectedColor = CianBrillante))
+                                Text(cat, color = Color.White, modifier = Modifier.padding(start = 12.dp), fontWeight = if(listaSeleccionada == cat) FontWeight.Bold else FontWeight.Normal)
+                            }
                         }
-                    } catch (e: Exception) { e.printStackTrace() }
+                    }
+                    
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        TextButton(onClick = { mostrarDialogoWidget = false }, modifier = Modifier.weight(1f)) { Text("Cancelar", color = Color.White) }
+                        Button(
+                            onClick = {
+                                sharedPreferences.edit().putString("widget_category", listaSeleccionada).apply()
+                                scope.launch {
+                                    val manager = GlanceAppWidgetManager(context)
+                                    val glanceIds = manager.getGlanceIds(com.letrasacordes.application.ui.widget.SetlistWidget::class.java)
+                                    glanceIds.forEach { id ->
+                                        com.letrasacordes.application.ui.widget.SetlistWidget().update(context, id)
+                                    }
+                                }
+                                mostrarDialogoWidget = false
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo)
+                        ) { Text("Guardar", fontWeight = FontWeight.Bold) }
+                    }
                 }
-                
-                mostrarDialogoWidget = false
             }
-        )
+        }
     }
 
     if (mostrarDialogoPresentacion) {
+        // Usamos el sistema visual unificado para seleccionar la lista de presentación
         var seleccionLista by remember { mutableStateOf<String?>(null) }
         var cancionesManuales by remember { mutableStateOf<List<Cancion>>(emptyList()) }
-        val listasReales = remember(categorias) { categorias.keys.filter { it != "Todas" } }
-        var usarListaExistente by remember { mutableStateOf(listasReales.isNotEmpty()) }
+        val listasReales = remember(categorias) { (listOf("Favoritos") + categorias.keys.filter { it != "Todas" && it != "Favoritos" }).distinct() }
+        var usarListaExistente by remember { mutableStateOf(true) }
 
         Dialog(onDismissRequest = { mostrarDialogoPresentacion = false }) {
             Surface(
@@ -314,35 +339,34 @@ fun PantallaConfiguracion(
                     Text("Configurar Presentación", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Color.White)
                     Spacer(Modifier.height(20.dp))
 
-                    if (listasReales.isNotEmpty()) {
-                        Surface(
-                            color = Color.White.copy(alpha = 0.05f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (usarListaExistente) CianBrillante else Color.Transparent)
-                                        .clickable { usarListaExistente = true }
-                                        .padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Usar Lista", color = if (usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (!usarListaExistente) CianBrillante else Color.Transparent)
-                                        .clickable { usarListaExistente = false }
-                                        .padding(vertical = 12.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("Crear Temporal", color = if (!usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                }
+                    // Selector de modo (Lista Existente vs Temporal)
+                    Surface(
+                        color = Color.White.copy(alpha = 0.05f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (usarListaExistente) CianBrillante else Color.Transparent)
+                                    .clickable { usarListaExistente = true }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Usar Lista", color = if (usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (!usarListaExistente) CianBrillante else Color.Transparent)
+                                    .clickable { usarListaExistente = false }
+                                    .padding(vertical = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Crear Temporal", color = if (!usarListaExistente) AzulProfundo else Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                         }
                     }
@@ -366,6 +390,7 @@ fun PantallaConfiguracion(
                                 }
                             }
                         } else {
+                            // ... (Mantenemos la lógica de canciones temporales igual)
                             var mostrarSelectorManual by remember { mutableStateOf(false) }
                             if (mostrarSelectorManual) {
                                 DialogoSeleccionarCanciones(
@@ -380,7 +405,7 @@ fun PantallaConfiguracion(
                                     }
                                 )
                             }
-
+                            // ... (columna de canciones temporales)
                             Column(modifier = Modifier.fillMaxSize()) {
                                 Box(
                                     modifier = Modifier.weight(1f).fillMaxWidth()
@@ -388,7 +413,7 @@ fun PantallaConfiguracion(
                                         .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(12.dp))
                                 ) {
                                     if (cancionesManuales.isEmpty()) {
-                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Preferiblemente, crear una lista", color = Color.White.copy(alpha = 0.4f)) }
+                                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Añade canciones", color = Color.White.copy(alpha = 0.4f)) }
                                     } else {
                                         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             items(cancionesManuales) { c ->
@@ -421,11 +446,13 @@ fun PantallaConfiguracion(
                             onClick = { 
                                 if (usarListaExistente) {
                                     if (seleccionLista != null) {
+                                        android.util.Log.d("PRESENTACION_DEBUG", "mandando tal listado a presentacion: $seleccionLista")
                                         onIniciarPresentacion(seleccionLista!!, null)
                                     }
                                 } else {
                                     if (cancionesManuales.isNotEmpty()) {
                                         val ids = cancionesManuales.map { it.id }
+                                        android.util.Log.d("PRESENTACION_DEBUG", "mandando tal listado a presentacion: LISTA_TEMPORAL_AUTO")
                                         viewModel.guardarCategoria("LISTA_TEMPORAL_AUTO", ids)
                                         onIniciarPresentacion("LISTA_TEMPORAL_AUTO", ids)
                                     }

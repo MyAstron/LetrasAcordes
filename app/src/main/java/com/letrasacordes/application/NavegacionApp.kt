@@ -47,15 +47,25 @@ fun NavegacionApp(
     
     // Manejar Deep Links de forma reactiva
     LaunchedEffect(deepLinkUri) {
-        // 1. Intentar por URI (Data)
         deepLinkUri?.let { uri ->
-            if (uri.scheme == "app" && uri.host == "cancion") {
-                val id = uri.lastPathSegment?.toIntOrNull()
-                if (id != null) {
-                    navController.navigate(Rutas.verCancionConId(id))
-                    onDeepLinkHandled()
-                    return@LaunchedEffect
+            if (uri.scheme == "app") {
+                when (uri.host) {
+                    "cancion" -> {
+                        val id = uri.lastPathSegment?.toIntOrNull()
+                        if (id != null) {
+                            navController.navigate(Rutas.verCancionConId(id))
+                            onDeepLinkHandled()
+                        }
+                    }
+                    "presentacion" -> {
+                        val categoria = uri.lastPathSegment
+                        if (categoria != null) {
+                            navController.navigate(Rutas.modoPresentacionConCategoria(categoria))
+                            onDeepLinkHandled()
+                        }
+                    }
                 }
+                return@LaunchedEffect
             }
         }
         

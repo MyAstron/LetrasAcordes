@@ -156,6 +156,21 @@ class CancionesViewModel(
     fun enTextoBusquedaCambiado(nuevoTexto: String) { _textoBusqueda.value = nuevoTexto }
     fun seleccionarCategoria(nombre: String?) { _categoriaSeleccionada.value = nombre }
     fun refrescarCategorias() { _categorias.value = categoryRepository.getAllCategories() }
+    
+    fun guardarEnCategoria(nombre: String, id: Int) {
+        val current = categoryRepository.getSongIdsForCategory(nombre).toMutableSet()
+        current.add(id)
+        categoryRepository.saveCategory(nombre, current.toList())
+        refrescarCategorias()
+    }
+    
+    fun quitarDeCategoria(nombre: String, id: Int) {
+        val current = categoryRepository.getSongIdsForCategory(nombre).toMutableSet()
+        current.remove(id)
+        categoryRepository.saveCategory(nombre, current.toList())
+        refrescarCategorias()
+    }
+
     fun guardarCategoria(nombre: String, idsCanciones: List<Int>) { categoryRepository.saveCategory(nombre, idsCanciones); refrescarCategorias() }
     fun eliminarCategoria(nombre: String) { categoryRepository.deleteCategory(nombre); if (_categoriaSeleccionada.value == nombre) _categoriaSeleccionada.value = null; refrescarCategorias() }
     fun actualizarCategoria(nombreOriginal: String, nombreNuevo: String, idsCanciones: List<Int>) { if (nombreOriginal != nombreNuevo) categoryRepository.deleteCategory(nombreOriginal); categoryRepository.saveCategory(nombreNuevo, idsCanciones); refrescarCategorias(); if (_categoriaSeleccionada.value == nombreOriginal) _categoriaSeleccionada.value = nombreNuevo }

@@ -110,8 +110,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        this.intent = intent
+        setIntent(intent)
         _intentUri.value = intent.data
+        android.util.Log.d("PRESENTACION_DEBUG", "onNewIntent recibido: ${intent.data}")
     }
 }
 
@@ -234,6 +235,10 @@ fun PantallaPrincipalCanciones(
     )
 
     val lazyListState = rememberLazyListState()
+    val isHeaderCollapsed by remember { derivedStateOf { lazyListState.firstVisibleItemIndex > 0 || lazyListState.firstVisibleItemScrollOffset > 0 } }
+    val headerHeight by animateDpAsState(if (isHeaderCollapsed) 0.dp else 64.dp, label = "header")
+    val searchBarPadding by animateDpAsState(if (isHeaderCollapsed) 0.dp else 16.dp, label = "searchPadding")
+    
     val uniqueInitialLetters = remember(listaCanciones) {
         listaCanciones
             .map { it.titulo.first().uppercaseChar() }
@@ -261,20 +266,22 @@ fun PantallaPrincipalCanciones(
             }
         },
         topBar = {
-            CenterAlignedTopAppBar(
-                title = { 
-                    Text("MELODÍAS", fontWeight = FontWeight.Black, letterSpacing = 2.sp, color = Color.White) 
-                },
-                actions = {
-                    IconButton(onClick = onAgregarCancionClick) { 
-                        Icon(Icons.Default.AddCircle, "Agregar", tint = Color.White) 
-                    }
-                    IconButton(onClick = onConfiguracionClick) { 
-                        Icon(Icons.Default.Tune, "Ajustes", tint = Color.White) 
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
-            )
+            if (!isHeaderCollapsed) {
+                CenterAlignedTopAppBar(
+                    title = { 
+                        Text("MELODÍAS", fontWeight = FontWeight.Black, letterSpacing = 2.sp, color = Color.White) 
+                    },
+                    actions = {
+                        IconButton(onClick = onAgregarCancionClick) { 
+                            Icon(Icons.Default.AddCircle, "Agregar", tint = Color.White) 
+                        }
+                        IconButton(onClick = onConfiguracionClick) { 
+                            Icon(Icons.Default.Tune, "Ajustes", tint = Color.White) 
+                        }
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
+                )
+            }
         },
         containerColor = AzulProfundo,
         modifier = modifier.background(backgroundGradient)
@@ -291,6 +298,13 @@ fun PantallaPrincipalCanciones(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 placeholder = { Text("¿Qué quieres tocar hoy?", color = Color.White.copy(alpha = 0.6f)) },
                 leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.White) },
+                trailingIcon = {
+                    if (textoBusqueda.isNotEmpty()) {
+                        IconButton(onClick = { cancionesViewModel.enTextoBusquedaCambiado("") }) {
+                            Icon(Icons.Default.Close, "Limpiar", tint = Color.White)
+                        }
+                    }
+                },
                 shape = RoundedCornerShape(24.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedTextColor = Color.White,
@@ -304,7 +318,7 @@ fun PantallaPrincipalCanciones(
             )
 
             val categoriasVisibles = remember(categorias) { 
-                categorias.keys.filter { it != "WIDGET_SELECTION" && it != "LISTA_TEMPORAL_AUTO" }.toList()
+                categorias.keys.filter { it != "WIDGET_SELECTION" && it != "LISTA_TEMPORAL_AUTO" && it != "Favoritos" }.sorted()
             }
 
             Row(
@@ -317,31 +331,42 @@ fun PantallaPrincipalCanciones(
                 ) {
                     item {
                         FilterChip(
+                            selected = categoriaSeleccionada == "Favoritos",
+                            onClick = { if (!isInEditMode) cancionesViewModel.seleccionarCategoria("Favoritos") },
+                            leadingIcon = { Icon(Icons.Default.Star, null, modifier = Modifier.size(16.dp)) },
+                            label = { },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFFFD700), selectedLabelColor = AzulProfundo, labelColor = Color.White)
+                        )
+                    }
+                    item {
+                        FilterChip(
                             selected = categoriaSeleccionada == null,
                             onClick = { if (!isInEditMode) cancionesViewModel.seleccionarCategoria(null) },
                             label = { Text("Todas") },
                             colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CianBrillante, selectedLabelColor = AzulProfundo, labelColor = Color.White)
                         )
                     }
-                    items(categoriasVisibles) { cat ->
-                        if (isInEditMode) {
+                    if (!isInEditMode) {
+                        items(categoriasVisibles) { cat ->
+                            FilterChip(
+                                selected = categoriaSeleccionada == cat,
+                                onClick = { cancionesViewModel.seleccionarCategoria(cat) },
+                                label = { Text(cat) },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CianBrillante, selectedLabelColor = AzulProfundo, labelColor = Color.White)
+                            )
+                        }
+                    } else {
+                        items(categoriasVisibles) { cat ->
                             InputChip(
                                 selected = false,
                                 onClick = { categoriaParaEditar = cat },
                                 label = { Text(cat) },
                                 trailingIcon = { 
                                     IconButton(onClick = { categoriaParaEliminar = cat }, modifier = Modifier.size(18.dp)) { 
-                                        Icon(Icons.Default.Close, null, tint = Color.Red) 
+                                        Icon(Icons.Default.Delete, null, tint = Color.Red) 
                                     } 
                                 },
                                 colors = InputChipDefaults.inputChipColors(containerColor = Color.White.copy(alpha = 0.2f), labelColor = Color.White)
-                            )
-                        } else {
-                            FilterChip(
-                                selected = categoriaSeleccionada == cat,
-                                onClick = { cancionesViewModel.seleccionarCategoria(cat) },
-                                label = { Text(cat) },
-                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CianBrillante, selectedLabelColor = AzulProfundo, labelColor = Color.White)
                             )
                         }
                     }
@@ -351,7 +376,7 @@ fun PantallaPrincipalCanciones(
                     Icon(Icons.Default.CreateNewFolder, "Crear", tint = CianBrillante) 
                 }
                 
-                if (categorias.isNotEmpty()) {
+                if (categorias.isNotEmpty() && categorias.keys.any { it != "Favoritos" }) {
                     IconButton(onClick = { isInEditMode = !isInEditMode }) { 
                         Icon(
                             if (isInEditMode) Icons.Default.Check else Icons.Default.Edit, 
@@ -374,7 +399,20 @@ fun PantallaPrincipalCanciones(
                             visible = true,
                             enter = slideInVertically(initialOffsetY = { 40 * (index + 1) }) + fadeIn()
                         ) {
-                            CardPlantilla(cancion = cancion, onClick = { onCancionClick(cancion.id) })
+                            val esFavorito = (categorias["Favoritos"] ?: emptyList()).contains(cancion.id)
+                            CardPlantilla(
+                                cancion = cancion, 
+                                isFavorito = esFavorito,
+                                onToggleFavorito = {
+                                    android.util.Log.d("PRESENTACION_DEBUG", "el boton fue seleccionado")
+                                    if (esFavorito) {
+                                        cancionesViewModel.quitarDeCategoria("Favoritos", cancion.id)
+                                    } else {
+                                        cancionesViewModel.guardarEnCategoria("Favoritos", cancion.id)
+                                    }
+                                },
+                                onClick = { onCancionClick(cancion.id) }
+                            )
                         }
                     }
                 }
@@ -897,7 +935,7 @@ fun DialogoSeleccionarCanciones(
 }
 
 @Composable
-fun CardPlantilla(cancion: Cancion, onClick: () -> Unit) {
+fun CardPlantilla(cancion: Cancion, isFavorito: Boolean, onToggleFavorito: () -> Unit, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(16.dp),
@@ -905,20 +943,16 @@ fun CardPlantilla(cancion: Cancion, onClick: () -> Unit) {
         elevation = CardDefaults.cardElevation(0.dp)
     ) {
         Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(cancion.coverUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(CianBrillante),
-                contentScale = ContentScale.Crop,
-                error = painterResource(id = android.R.drawable.ic_menu_gallery),
-                placeholder = painterResource(id = android.R.drawable.ic_menu_gallery)
-            )
+            IconButton(
+                onClick = onToggleFavorito,
+                modifier = Modifier.size(48.dp)
+            ) {
+                Icon(
+                    imageVector = if (isFavorito) Icons.Default.Star else Icons.Default.StarOutline,
+                    contentDescription = "Favorito",
+                    tint = if (isFavorito) Color(0xFFFFD700) else Color.White.copy(alpha = 0.5f)
+                )
+            }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = cancion.titulo, style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)

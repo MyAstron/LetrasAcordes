@@ -13,6 +13,8 @@ import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
 import androidx.glance.appwidget.action.actionStartActivity
+import androidx.glance.appwidget.lazy.LazyColumn
+import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.*
@@ -30,12 +32,13 @@ class SetlistWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val db = AppDatabase.getDatabase(context)
         val categoryRepository = CategoryRepository(context)
-        val widgetIds = categoryRepository.getSongIdsForCategory("WIDGET_SELECTION")
+        val sharedPreferences = context.getSharedPreferences("app_preferences", Context.MODE_PRIVATE)
+        val categoryName = sharedPreferences.getString("widget_category", "Todas") ?: "Todas"
         
-        val canciones = if (widgetIds.isEmpty()) {
-            db.cancionDao().obtenerTodasLasCanciones().first().take(6)
-        } else {
-            db.cancionDao().obtenerCancionesPorIds(widgetIds.toSet()).first().take(6)
+        val canciones = when (categoryName) {
+            "Todas" -> db.cancionDao().obtenerTodasLasCanciones().first()
+            "Favoritos" -> db.cancionDao().obtenerCancionesPorIds(categoryRepository.getSongIdsForCategory("Favoritos").toSet()).first()
+            else -> db.cancionDao().obtenerCancionesPorIds(categoryRepository.getSongIdsForCategory(categoryName).toSet()).first()
         }
 
         provideContent {
@@ -43,9 +46,35 @@ class SetlistWidget : GlanceAppWidget() {
                 modifier = GlanceModifier
                     .fillMaxSize()
                     .background(ColorProvider(Color(0xFF1A237E)))
-                    .padding(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(8.dp)
             ) {
+                // Botón de Presentación Dinámico
+                val presentacionIntent = Intent(context, MainActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    data = Uri.parse("app://presentacion/$categoryName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                
+                Row(
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .background(ColorProvider(Color(0xFFFBC02D)))
+                        .padding(8.dp)
+                        .clickable(actionStartActivity(presentacionIntent)),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "▶ PRESENTACIÓN: ${categoryName.uppercase()}",
+                        style = TextStyle(
+                            color = ColorProvider(Color.Black),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+
                 if (canciones.isEmpty()) {
                     Box(modifier = GlanceModifier.defaultWeight(), contentAlignment = Alignment.Center) {
                         Text(
@@ -54,8 +83,10 @@ class SetlistWidget : GlanceAppWidget() {
                         )
                     }
                 } else {
-                    Column(modifier = GlanceModifier.fillMaxWidth()) {
-                        canciones.forEach { cancion -> SongItem(context, cancion) }
+                    LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+                        items(canciones) { cancion -> 
+                            SongItem(context, cancion) 
+                        }
                     }
                 }
             }
@@ -73,22 +104,22 @@ class SetlistWidget : GlanceAppWidget() {
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
-                .padding(vertical = 2.dp, horizontal = 4.dp)
+                .padding(vertical = 4.dp)
                 .background(ColorProvider(Color(0xFF283593)))
-                .padding(4.dp)
+                .padding(8.dp)
                 .clickable(actionStartActivity(intent)),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "♪",
-                style = TextStyle(color = ColorProvider(Color(0xFF4FC3F7)), fontSize = 14.sp)
+                style = TextStyle(color = ColorProvider(Color(0xFF4FC3F7)), fontSize = 16.sp)
             )
-            Spacer(GlanceModifier.width(4.dp))
+            Spacer(GlanceModifier.width(8.dp))
             Text(
                 text = cancion.titulo.uppercase(),
                 style = TextStyle(
                     color = ColorProvider(Color.White),
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 ),
                 maxLines = 1
