@@ -507,8 +507,7 @@ fun DialogoGestionListaTemporal(
                         LazyColumn(modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             items(listaActual) { cancion ->
                                 Row(modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    AsyncImage(model = ImageRequest.Builder(LocalContext.current).data(cancion.coverUrl).crossfade(true).build(), contentDescription = null, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)), contentScale = ContentScale.Crop, error = painterResource(id = android.R.drawable.ic_menu_gallery))
-                                    Text(cancion.titulo, color = Color.White, modifier = Modifier.padding(start = 12.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(cancion.titulo, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     IconButton(onClick = { listaActual = listaActual.filter { it.id != cancion.id } }) { Icon(Icons.Default.Close, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(18.dp)) }
                                 }
                             }

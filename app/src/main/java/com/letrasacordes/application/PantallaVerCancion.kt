@@ -69,14 +69,13 @@ fun PantallaVerCancion(
     var altoContraste by remember { mutableStateOf(false) }
     var mostrarRielDiagramas by remember { mutableStateOf(false) }
     var mostrarConfirmarEliminar by remember { mutableStateOf(false) }
-    var mostrarInfoRapida by remember { mutableStateOf(false) }
+
     
     val metronome = remember { MetronomeController() }
     var isMetronomeRunning by remember { mutableStateOf(false) }
     var bpm by remember { mutableIntStateOf(100) }
 
-    val mediaPlayer = remember { MediaPlayer() }
-    var isAudioMuted by remember { mutableStateOf(false) }
+
 
     val scrollState = rememberScrollState()
 
@@ -90,7 +89,6 @@ fun PantallaVerCancion(
     DisposableEffect(Unit) {
         onDispose {
             metronome.release()
-            mediaPlayer.release()
         }
     }
 
@@ -118,107 +116,13 @@ fun PantallaVerCancion(
         )
     }
 
-    // 4. DIÁLOGO DE INFO RÁPIDA
-    if (mostrarInfoRapida) {
-        LaunchedEffect(cancionActual?.previewUrl) {
-            val url = cancionActual?.previewUrl
-            if (!url.isNullOrBlank() && cancionActual?.coverUrl != null && cancionActual?.titulo != null) {
-                try {
-                    mediaPlayer.reset()
-                    mediaPlayer.setDataSource(url)
-                    mediaPlayer.prepareAsync()
-                    mediaPlayer.setOnPreparedListener { mp ->
-                        mp.isLooping = true
-                        mp.setVolume(if (isAudioMuted) 0f else 0.3f, if (isAudioMuted) 0f else 0.3f)
-                        mp.start()
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-        }
 
-        DisposableEffect(Unit) {
-            onDispose {
-                if (mediaPlayer.isPlaying) {
-                    mediaPlayer.stop()
-                }
-                mediaPlayer.reset()
-            }
-        }
-
-        Dialog(onDismissRequest = { mostrarInfoRapida = false }) {
-            Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = AzulProfundo,
-                tonalElevation = 8.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(120.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(Color.White.copy(alpha = 0.1f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (cancionActual?.coverUrl != null) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(cancionActual?.coverUrl)
-                                    .crossfade(true)
-                                    .build(),
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(60.dp), tint = CianBrillante)
-                        }
-                    }
-                    
-                    Text(
-                        text = cancionActual?.titulo ?: "",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center
-                    )
-                    
-                    if (!cancionActual?.autor.isNullOrBlank()) {
-                        Text(
-                            text = cancionActual?.autor ?: "",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = CianBrillante,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    if (!cancionActual?.previewUrl.isNullOrBlank()) {
-                        IconButton(onClick = {
-                            isAudioMuted = !isAudioMuted
-                            mediaPlayer.setVolume(if (isAudioMuted) 0f else 0.3f, if (isAudioMuted) 0f else 0.3f)
-                        }) {
-                            Icon(
-                                imageVector = if (isAudioMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                                contentDescription = "Silenciar",
-                                tint = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { 
-                    Column(modifier = Modifier.clickable { mostrarInfoRapida = true }) {
+                    Column {
                         Text(cancionActual?.titulo ?: "", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                         Text(cancionActual?.autor ?: "", color = CianBrillante, style = MaterialTheme.typography.bodySmall)
                     }

@@ -200,9 +200,7 @@ fun PantallaEditarCancion(
 
     val rhythmOptions = listOf("Balada", "Rock", "Pop", "Bolero", "Cumbia", "Salsa", "Arpegio", "Vals")
 
-    val pickCoverLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { cancion?.let { c -> viewModel.guardarImagenLocal(it, c) } }
-    }
+
 
     fun insertarAcorde(acorde: String) {
         val currentText = letraValue.text
@@ -469,78 +467,7 @@ fun PantallaEditarCancion(
                         }
                     }
 
-                    // PANEL DE GESTIÓN DE ICONO
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color.White.copy(alpha = 0.1f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(80.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color.White.copy(alpha = 0.1f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (cancion.coverUrl != null) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(cancion.coverUrl)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    Icon(Icons.Default.MusicNote, null, modifier = Modifier.size(40.dp), tint = Color.White.copy(alpha = 0.5f))
-                                }
-                            }
 
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = { viewModel.buscarPortadaEnItunes(cancion) },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(0.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = AzulMedio)
-                                ) {
-                                    Icon(Icons.Default.Search, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Rebuscar", fontSize = 12.sp)
-                                }
-                                Button(
-                                    onClick = { pickCoverLauncher.launch("image/*") },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(0.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = CianBrillante, contentColor = AzulProfundo)
-                                ) {
-                                    Icon(Icons.Default.FileUpload, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Subir", fontSize = 12.sp)
-                                }
-                                Button(
-                                    onClick = { viewModel.borrarIcono(cancion) },
-                                    modifier = Modifier.weight(1f),
-                                    contentPadding = PaddingValues(0.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.7f))
-                                ) {
-                                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Borrar", fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }

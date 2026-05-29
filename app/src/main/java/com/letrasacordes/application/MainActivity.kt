@@ -317,8 +317,14 @@ fun PantallaPrincipalCanciones(
                 singleLine = true
             )
 
-            val categoriasVisibles = remember(categorias) { 
+            val categoriasVisibles = remember(categorias) {
                 categorias.keys.filter { it != "WIDGET_SELECTION" && it != "LISTA_TEMPORAL_AUTO" && it != "Favoritos" }.sorted()
+            }
+            // If we are in edit mode and there are no custom categories left, exit edit mode automatically
+            LaunchedEffect(categoriasVisibles) {
+                if (isInEditMode && categoriasVisibles.isEmpty()) {
+                    isInEditMode = false
+                }
             }
 
             Row(
@@ -329,24 +335,25 @@ fun PantallaPrincipalCanciones(
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    item {
-                        FilterChip(
-                            selected = categoriaSeleccionada == "Favoritos",
-                            onClick = { if (!isInEditMode) cancionesViewModel.seleccionarCategoria("Favoritos") },
-                            leadingIcon = { Icon(Icons.Default.Star, null, modifier = Modifier.size(16.dp)) },
-                            label = { },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFFFD700), selectedLabelColor = AzulProfundo, labelColor = Color.White)
-                        )
-                    }
-                    item {
-                        FilterChip(
-                            selected = categoriaSeleccionada == null,
-                            onClick = { if (!isInEditMode) cancionesViewModel.seleccionarCategoria(null) },
-                            label = { Text("Todas") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CianBrillante, selectedLabelColor = AzulProfundo, labelColor = Color.White)
-                        )
-                    }
                     if (!isInEditMode) {
+                        item {
+                            FilterChip(
+                                selected = categoriaSeleccionada == "Favoritos",
+                                onClick = { cancionesViewModel.seleccionarCategoria("Favoritos") },
+                                modifier = Modifier.height(28.dp),
+                                leadingIcon = { Icon(Icons.Default.Star, null, modifier = Modifier.size(12.dp)) },
+                                label = { },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Color(0xFFFFD700), selectedLabelColor = AzulProfundo, labelColor = Color.White)
+                            )
+                        }
+                        item {
+                            FilterChip(
+                                selected = categoriaSeleccionada == null,
+                                onClick = { cancionesViewModel.seleccionarCategoria(null) },
+                                label = { Text("Todas") },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = CianBrillante, selectedLabelColor = AzulProfundo, labelColor = Color.White)
+                            )
+                        }
                         items(categoriasVisibles) { cat ->
                             FilterChip(
                                 selected = categoriaSeleccionada == cat,
@@ -361,6 +368,14 @@ fun PantallaPrincipalCanciones(
                                 selected = false,
                                 onClick = { categoriaParaEditar = cat },
                                 label = { Text(cat) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Edit,
+                                        contentDescription = "Editar nombre",
+                                        tint = CianBrillante,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
                                 trailingIcon = { 
                                     IconButton(onClick = { categoriaParaEliminar = cat }, modifier = Modifier.size(18.dp)) { 
                                         Icon(Icons.Default.Delete, null, tint = Color.Red) 
@@ -376,13 +391,14 @@ fun PantallaPrincipalCanciones(
                     Icon(Icons.Default.CreateNewFolder, "Crear", tint = CianBrillante) 
                 }
                 
-                if (categorias.isNotEmpty() && categorias.keys.any { it != "Favoritos" }) {
-                    IconButton(onClick = { isInEditMode = !isInEditMode }) { 
+                // Show edit/check button if there are custom categories OR if we are currently in edit mode (to allow exit)
+                if (categorias.keys.any { it != "Favoritos" } || isInEditMode) {
+                    IconButton(onClick = { isInEditMode = !isInEditMode }) {
                         Icon(
-                            if (isInEditMode) Icons.Default.Check else Icons.Default.Edit, 
-                            null, 
+                            if (isInEditMode) Icons.Default.Check else Icons.Default.Edit,
+                            null,
                             tint = if (isInEditMode) Color.Green else CianBrillante
-                        ) 
+                        )
                     }
                 }
             }
@@ -535,14 +551,7 @@ fun DialogoCrearEditarCategoria(
                                     modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp)).padding(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current).data(cancion.coverUrl).crossfade(true).build(),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)),
-                                        contentScale = ContentScale.Crop,
-                                        error = painterResource(id = android.R.drawable.ic_menu_gallery)
-                                    )
-                                    Text(cancion.titulo, color = Color.White, modifier = Modifier.padding(start = 12.dp).weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(cancion.titulo, color = Color.White, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     IconButton(onClick = { cancionesEnLista = cancionesEnLista.filter { it.id != cancion.id } }) {
                                         Icon(Icons.Default.Close, null, tint = Color.Red.copy(alpha = 0.6f), modifier = Modifier.size(18.dp))
                                     }
@@ -785,23 +794,6 @@ fun ItemOrdenablePdf(
                     .padding(4.dp)
             )
             
-            Spacer(modifier = Modifier.width(4.dp))
-
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(cancion.coverUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = null,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.White.copy(alpha = 0.1f)),
-                contentScale = ContentScale.Crop,
-                placeholder = painterResource(id = android.R.drawable.ic_menu_gallery),
-                error = painterResource(id = android.R.drawable.ic_menu_gallery)
-            )
-
             Spacer(modifier = Modifier.width(12.dp))
             
             Column(modifier = Modifier.weight(1f)) {
@@ -894,17 +886,7 @@ fun DialogoSeleccionarCanciones(
                                     colors = CheckboxDefaults.colors(checkedColor = CianBrillante)
                                 )
                                 
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(cancion.coverUrl)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(32.dp).clip(RoundedCornerShape(4.dp)),
-                                    contentScale = ContentScale.Crop,
-                                    error = painterResource(id = android.R.drawable.ic_menu_gallery)
-                                )
-                                Text(cancion.titulo, modifier = Modifier.padding(start = 12.dp), color = Color.White)
+                                Text(cancion.titulo, modifier = Modifier.padding(start = 8.dp), color = Color.White)
                             }
                         }
                     } else if (!permitirListas || categorias.isEmpty()) {

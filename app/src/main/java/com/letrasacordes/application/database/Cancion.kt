@@ -29,10 +29,4 @@ data class Cancion(
     val fechaCreacion: Long,
 
     val ultimaEdicion: Long,
-
-    val coverUrl: String? = null,
-
-    val previewUrl: String? = null,
-
-    val noBuscarPortada: Boolean = false // Nuevo campo para evitar re-búsquedas si el usuario lo borró
 )

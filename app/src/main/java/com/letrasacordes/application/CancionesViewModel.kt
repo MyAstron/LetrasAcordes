@@ -63,15 +63,6 @@ class CancionesViewModel(
 
     init {
         refrescarCategorias()
-        // Búsqueda automática de portadas
-        viewModelScope.launch(Dispatchers.IO) {
-            val cancionesActuales = dao.obtenerTodasLasCancionesSync()
-            cancionesActuales.forEach { cancion ->
-                if (cancion.coverUrl == null && !cancion.noBuscarPortada) {
-                    buscarPortadaEnItunes(cancion)
-                }
-            }
-        }
     }
     
     val todasLasCanciones: StateFlow<List<Cancion>> = dao.obtenerTodasLasCanciones()
@@ -94,64 +85,6 @@ class CancionesViewModel(
     }.flatMapLatest { it }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    fun buscarPortadaEnItunes(cancion: Cancion) {
-        if (!isNetworkAvailable()) return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val client = OkHttpClient()
-                val searchTerm = "${cancion.titulo} ${cancion.autor ?: ""}".trim()
-                val url = "https://itunes.apple.com/search?term=${Uri.encode(searchTerm)}&entity=song&limit=1"
-                
-                val request = Request.Builder().url(url).build()
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val body = response.body?.string()
-                        val itunesResponse = Gson().fromJson(body, ItunesResponse::class.java)
-                        val artworkUrl = itunesResponse.results.firstOrNull()?.artworkUrl100
-                        if (artworkUrl != null) {
-                            dao.actualizar(cancion.copy(coverUrl = artworkUrl, noBuscarPortada = false))
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
-    }
-
-    fun guardarImagenLocal(uri: Uri, cancion: Cancion) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val bitmap = BitmapFactory.decodeStream(inputStream)
-                val scaledBitmap = Bitmap.createScaledBitmap(bitmap, 250, 250, true)
-                val file = File(context.filesDir, "cover_${cancion.id}_${System.currentTimeMillis()}.jpg")
-                val out = FileOutputStream(file)
-                scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
-                out.flush()
-                out.close()
-                dao.actualizar(cancion.copy(coverUrl = file.absolutePath, noBuscarPortada = true))
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
-
-    fun borrarIcono(cancion: Cancion) {
-        viewModelScope.launch(Dispatchers.IO) {
-            dao.actualizar(cancion.copy(coverUrl = null, noBuscarPortada = true))
-        }
-    }
-
-    private fun isNetworkAvailable(): Boolean {
-        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = connectivityManager.activeNetwork ?: return false
-        val activeNetwork = connectivityManager.getNetworkCapabilities(network) ?: return false
-        return when {
-            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> true
-            activeNetwork.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> true
-            else -> false
-        }
-    }
 
     fun enTextoBusquedaCambiado(nuevoTexto: String) { _textoBusqueda.value = nuevoTexto }
     fun seleccionarCategoria(nombre: String?) { _categoriaSeleccionada.value = nombre }
@@ -236,15 +169,51 @@ class CancionesViewModel(
                         tonoOriginal = campos[5 + offset].takeIf { it.isNotEmpty() },
                         letraSinAcordes = campos[6 + offset].replace(LINE_BREAK_REPLACEMENT, "\n"),
                         fechaCreacion = campos[7 + offset].toLong(),
-                        ultimaEdicion = campos[8 + offset].toLong(),
-                        coverUrl = null, // Al importar, se buscará la portada automáticamente
-                        noBuscarPortada = false
+                        ultimaEdicion = campos[8 + offset].toLong()
                     )
                 } else null
             } catch (e: Exception) { null }
         }
-        if (cancionesAImportar.isNotEmpty()) dao.insertarVarias(cancionesAImportar)
-        return cancionesAImportar.size
+
+        if (cancionesAImportar.isEmpty()) return 0
+
+        // Obtener canciones existentes para emparejar por título y autor
+        val cancionesExistentes = dao.obtenerTodasLasCancionesSync()
+
+        // Helper para generar una llave única por título y autor
+        fun obtenerLlave(titulo: String, autor: String?): String {
+            val t = titulo.trim().lowercase()
+            val a = autor?.trim()?.lowercase() ?: ""
+            return "$t|$a"
+        }
+
+        val mapaExistentes = cancionesExistentes.associateBy { obtenerLlave(it.titulo, it.autor) }
+
+        var nuevasAgregadas = 0
+        var existentesActualizadas = 0
+
+        cancionesAImportar.forEach { cancionImportada ->
+            val llave = obtenerLlave(cancionImportada.titulo, cancionImportada.autor)
+            val cancionExistente = mapaExistentes[llave]
+
+            if (cancionExistente != null) {
+                // Si la canción ya existe y la importada es más reciente, se actualizan sus datos manteniendo el ID local
+                if (cancionImportada.ultimaEdicion > cancionExistente.ultimaEdicion) {
+                    val cancionActualizada = cancionImportada.copy(
+                        id = cancionExistente.id
+                    )
+                    dao.actualizar(cancionActualizada)
+                    existentesActualizadas++
+                }
+            } else {
+                // Si la canción no existe, la insertamos con id = 0 para evitar conflictos con IDs locales autogenerados
+                val cancionNueva = cancionImportada.copy(id = 0)
+                dao.insertar(cancionNueva)
+                nuevasAgregadas++
+            }
+        }
+
+        return nuevasAgregadas + existentesActualizadas
     }
 
     companion object {
@@ -261,5 +230,4 @@ class CancionesViewModel(
     }
 }
 
-data class ItunesResponse(val results: List<ItunesResult>)
-data class ItunesResult(val artworkUrl100: String)
+
